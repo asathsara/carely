@@ -1,3 +1,7 @@
-ignoredBuiltDependencies:
-  - sharp
-  - unrs-resolver
+allowBuilds:
+  esbuild: false
+  sharp: false
+  unrs-resolver: false
+minimumReleaseAgeExclude:
+  - lucide-react@1.53.0
+  - nodemailer@10.0.16
