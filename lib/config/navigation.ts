@@ -1,9 +1,8 @@
-import type { LucideIcon } from "lucide-react";
+﻿import type { LucideIcon } from "lucide-react";
 import {
   CalendarClock,
   CalendarDays,
   CalendarPlus,
-  ClipboardList,
   ClipboardPenLine,
   ClipboardPlus,
   LayoutDashboard,
@@ -38,24 +37,34 @@ export const roleNavigation: Record<string, NavItem[]> = {
     { label: "Availability", href: "/doctor/availability", icon: CalendarClock },
   ],
   nurse: [
-    { label: "Patient Intake", href: "/nurse/intake", icon: ClipboardPlus },
-    { label: "Queue Management", href: "/nurse/queue", icon: ListOrdered },
-    { label: "Preliminary Notes", href: "/nurse/notes", icon: NotebookPen },
+    { label: "Record Vitals", href: "/nurse/vitals", icon: ClipboardPlus },
+
+    {
+      label: "Preliminary Records",
+      href: "/nurse/preliminary-records",
+      icon: NotebookPen,
+    },
   ],
   reception: [
     { label: "Walk-in Registration", href: "/reception/register", icon: UserPlus },
     { label: "On-site Channeling", href: "/reception/channeling", icon: CalendarPlus },
     { label: "Queue Management", href: "/reception/queue", icon: ListOrdered },
+    {
+      label: "Appointments & Check-in",
+      href: "/reception/appointments",
+      icon: CalendarDays,
+    },
   ],
   pharmacy: [
     { label: "Inventory", href: "/pharmacy", icon: PackageSearch },
     { label: "Edit Stock", href: "/pharmacy/stock", icon: PackageOpen },
-    { label: "Stock Requests", href: "/pharmacy/requests", icon: ClipboardList },
+    { label: "Prescriptions", href: "/pharmacy/prescriptions", icon: Pill },
   ],
   admin: [
     { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
     { label: "Staff Management", href: "/admin/staff", icon: Users },
     { label: "System Settings", href: "/admin/settings", icon: Settings },
     { label: "Audit Trail", href: "/admin/audit", icon: ScrollText },
+    { label: "Doctor Finder", href: "/admin/doctor-finder", icon: Search },
   ],
 };
