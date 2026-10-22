@@ -19,7 +19,5 @@ export const hospitalSettings = pgTable(
     }),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
-  (table) => [
-    sql`CONSTRAINT hospital_settings_single_row CHECK (${table.id} = 1)`,
-  ]
+  (table) => [sql`CONSTRAINT hospital_settings_single_row CHECK (${table.id} = 1)`]
 );

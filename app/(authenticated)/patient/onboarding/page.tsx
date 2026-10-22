@@ -83,22 +83,20 @@ export default function PatientOnboardingPage() {
             <CheckCircle2 className="size-9" />
           </div>
           <div className="space-y-2">
-            <h2 className="text-xl font-bold text-foreground">
-              Registration Complete
-            </h2>
-            <p className="text-sm text-muted-foreground">
+            <h2 className="text-foreground text-xl font-bold">Registration Complete</h2>
+            <p className="text-muted-foreground text-sm">
               Your patient record has been created in the hospital system.
             </p>
           </div>
-          <div className="rounded-lg bg-muted/50 p-4">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">
+          <div className="bg-muted/50 rounded-lg p-4">
+            <p className="text-muted-foreground text-xs tracking-wider uppercase">
               Medical Record Number (MRN)
             </p>
-            <p className="mt-1 font-mono text-2xl font-bold text-primary">
+            <p className="text-primary mt-1 font-mono text-2xl font-bold">
               {completedPatientNo}
             </p>
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-muted-foreground text-xs">
             Redirecting to your patient portal dashboard…
           </p>
         </Card>
@@ -107,33 +105,33 @@ export default function PatientOnboardingPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl py-8 px-4">
+    <div className="mx-auto max-w-2xl px-4 py-8">
       <div className="mb-8 space-y-2 text-center sm:text-left">
-        <div className="flex items-center justify-center sm:justify-start gap-2.5 text-primary">
+        <div className="text-primary flex items-center justify-center gap-2.5 sm:justify-start">
           <HeartPulse className="size-6" />
-          <span className="text-xs font-bold uppercase tracking-wider">
+          <span className="text-xs font-bold tracking-wider uppercase">
             Patient Identity Verification
           </span>
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+        <h1 className="text-foreground text-2xl font-bold tracking-tight sm:text-3xl">
           Complete Your Patient Profile
         </h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           Please confirm your clinical details. This information ensures your medical
           records and appointments are correctly linked.
         </p>
       </div>
 
-      <Card className="p-6 sm:p-8 shadow-sm">
+      <Card className="p-6 shadow-sm sm:p-8">
         {serverError ? (
-          <div className="mb-6 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+          <div className="bg-destructive/10 text-destructive mb-6 rounded-md p-3 text-sm">
             {serverError}
           </div>
         ) : null}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6" noValidate>
           <div className="space-y-4">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            <h3 className="text-muted-foreground text-sm font-semibold tracking-wider uppercase">
               Primary Details
             </h3>
 
@@ -167,7 +165,7 @@ export default function PatientOnboardingPage() {
             <div className="space-y-1.5">
               <label
                 htmlFor="gender"
-                className="text-xs font-semibold uppercase tracking-wider text-foreground"
+                className="text-foreground text-xs font-semibold tracking-wider uppercase"
               >
                 Gender
               </label>
@@ -183,15 +181,13 @@ export default function PatientOnboardingPage() {
                       <SelectItem value="male">Male</SelectItem>
                       <SelectItem value="female">Female</SelectItem>
                       <SelectItem value="other">Other</SelectItem>
-                      <SelectItem value="prefer_not_to_say">
-                        Prefer not to say
-                      </SelectItem>
+                      <SelectItem value="prefer_not_to_say">Prefer not to say</SelectItem>
                     </SelectContent>
                   </Select>
                 )}
               />
               {errors.gender?.message ? (
-                <p className="text-xs text-destructive">{errors.gender.message}</p>
+                <p className="text-destructive text-xs">{errors.gender.message}</p>
               ) : null}
             </div>
 
@@ -205,7 +201,7 @@ export default function PatientOnboardingPage() {
           </div>
 
           <div className="space-y-4 border-t pt-5">
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+            <h3 className="text-muted-foreground text-sm font-semibold tracking-wider uppercase">
               Emergency Contact (Optional)
             </h3>
 

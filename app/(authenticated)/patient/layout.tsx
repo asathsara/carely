@@ -1,33 +1,29 @@
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { PatientDemoProvider } from "@/components/patient/patient-demo-provider";
 import { AppShell } from "@/components/workspace/app-shell";
 import { auth } from "@/lib/auth";
-import { demoPeople } from "@/lib/mock/content";
 
 function getInitials(name: string) {
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+  return (
+    name
+      .split(" ")
+      .filter(Boolean)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2) || "PT"
+  );
 }
 
 export default async function PatientLayout({ children }: { children: ReactNode }) {
-  let displayName: string = demoPeople.portalPatient.name;
-  let initials: string = demoPeople.portalPatient.initials;
+  const session = await auth.api.getSession({
+    headers: await headers(),
+  });
 
-  try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-    if (session?.user?.name) {
-      displayName = session.user.name;
-      initials = getInitials(session.user.name);
-    }
-  } catch {
-    // Fall back to demo user
+  if (!session?.user) {
+    redirect("/login?callbackUrl=/patient/dashboard");
   }
 
   return (
@@ -35,9 +31,9 @@ export default async function PatientLayout({ children }: { children: ReactNode 
       <AppShell
         role="patient"
         user={{
-          name: displayName,
+          name: session.user.name,
           detail: "Patient",
-          initials,
+          initials: getInitials(session.user.name),
         }}
       >
         {children}

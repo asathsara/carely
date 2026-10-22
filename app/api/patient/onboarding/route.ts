@@ -50,6 +50,7 @@ export async function POST(request: Request) {
     const rawSeq = seqResult[0]?.seq || "1";
     const patientNo = `PAT-${String(rawSeq).padStart(6, "0")}`;
 
+    // Atomic insert with conflict handling to prevent double-click race conditions
     const [created] = await db
       .insert(patient)
       .values({
@@ -63,17 +64,31 @@ export async function POST(request: Request) {
         emergencyContactName: data.emergencyContactName || null,
         emergencyContactPhone: data.emergencyContactPhone || null,
       })
+      .onConflictDoNothing({ target: patient.userId })
       .returning();
+
+    if (!created) {
+      // Another concurrent request already created the record; fetch and return it
+      const [existingRecord] = await db
+        .select()
+        .from(patient)
+        .where(eq(patient.userId, session.user.id))
+        .limit(1);
+
+      return NextResponse.json({
+        success: true,
+        patient: existingRecord,
+        patientNo: existingRecord?.patientNo,
+      });
+    }
 
     return NextResponse.json({
       success: true,
       patient: created,
+      patientNo: created.patientNo,
     });
   } catch (err) {
     console.error("Failed to complete patient onboarding:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

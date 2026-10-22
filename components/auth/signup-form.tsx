@@ -93,15 +93,16 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
         </div>
 
         <div className="space-y-2">
-          <h3 className="text-lg font-semibold text-foreground">Check your email</h3>
+          <h3 className="text-foreground text-lg font-semibold">Check your email</h3>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            We sent a verification link to <span className="font-medium text-foreground">{submittedEmail}</span>.
-            Please verify your email address before continuing.
+            We sent a verification link to{" "}
+            <span className="text-foreground font-medium">{submittedEmail}</span>. Please
+            verify your email address before continuing.
           </p>
         </div>
 
         {serverError ? (
-          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+          <div className="bg-destructive/10 text-destructive rounded-md p-3 text-sm">
             {serverError}
           </div>
         ) : null}
@@ -113,21 +114,23 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
           </div>
         ) : null}
 
-        <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-xs text-muted-foreground">
-          <p className="font-medium text-foreground">Local Development Mode</p>
-          <p className="mt-1">
-            Emails are delivered to your local Mailpit instance. Check{" "}
-            <a
-              href="http://localhost:8025"
-              target="_blank"
-              rel="noreferrer"
-              className="font-medium text-primary underline"
-            >
-              http://localhost:8025
-            </a>{" "}
-            to view and click your link.
-          </p>
-        </div>
+        {process.env.NODE_ENV === "development" ? (
+          <div className="border-border/60 bg-muted/30 text-muted-foreground rounded-lg border p-4 text-xs">
+            <p className="text-foreground font-medium">Local Development Mode</p>
+            <p className="mt-1">
+              Emails are delivered to your local Mailpit instance. Check{" "}
+              <a
+                href="http://localhost:8025"
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary font-medium underline"
+              >
+                http://localhost:8025
+              </a>{" "}
+              to view and click your link.
+            </p>
+          </div>
+        ) : null}
 
         <div className="pt-2">
           <Button
@@ -149,12 +152,12 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
           </Button>
         </div>
 
-        <p className="text-xs text-muted-foreground">
+        <p className="text-muted-foreground text-xs">
           Wrong email address?{" "}
           <button
             type="button"
             onClick={() => setSubmittedEmail(null)}
-            className="font-medium text-primary hover:underline"
+            className="text-primary font-medium hover:underline"
           >
             Start over
           </button>
@@ -166,7 +169,7 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
   return (
     <form className="space-y-4" onSubmit={handleSubmit(onSubmit)} noValidate>
       {serverError ? (
-        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+        <div className="bg-destructive/10 text-destructive rounded-md p-3 text-sm">
           {serverError}
         </div>
       ) : null}
@@ -219,7 +222,8 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
         <div className="space-y-1">
           <p className="text-sm font-semibold">Verification link required</p>
           <p className="text-muted-foreground text-xs leading-relaxed font-normal">
-            A confirmation link will be sent to your email to verify and activate your patient account.
+            A confirmation link will be sent to your email to verify and activate your
+            patient account.
           </p>
         </div>
       </div>
@@ -228,7 +232,7 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
         {isSubmitting ? "Creating account…" : "Create account"}
       </Button>
 
-      <p className="text-center text-xs font-semibold text-primary">
+      <p className="text-primary text-center text-xs font-semibold">
         Already registered?{" "}
         <Link className="hover:underline" href="/login">
           Sign in

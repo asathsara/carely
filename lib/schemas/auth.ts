@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const loginSchema = z.object({
-  email: z.string().email("Enter a valid email address"),
+  email: z.email("Enter a valid email address"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   rememberMe: z.boolean(),
 });
@@ -9,7 +9,7 @@ export const loginSchema = z.object({
 export const signupSchema = z
   .object({
     name: z.string().trim().min(2, "Full name must be at least 2 characters"),
-    email: z.string().email("Enter a valid email address"),
+    email: z.email("Enter a valid email address"),
     password: z.string().min(8, "Password must be at least 8 characters"),
     confirmPassword: z.string().min(8, "Confirm your password"),
   })
@@ -21,7 +21,23 @@ export const signupSchema = z
 export const patientOnboardingSchema = z.object({
   fullName: z.string().trim().min(2, "Full name must be at least 2 characters"),
   phone: z.string().trim().min(7, "Enter a valid telephone number"),
-  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date (YYYY-MM-DD)"),
+  dateOfBirth: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date (YYYY-MM-DD)")
+    .refine((val) => {
+      const parts = val.split("-").map(Number);
+      if (parts.length !== 3) return false;
+      const [year, month, day] = parts;
+      const date = new Date(Date.UTC(year, month - 1, day));
+      const now = new Date();
+
+      return (
+        date.getUTCFullYear() === year &&
+        date.getUTCMonth() === month - 1 &&
+        date.getUTCDate() === day &&
+        date.getTime() <= now.getTime()
+      );
+    }, "Date of birth must be a valid calendar date in the past"),
   gender: z.enum(["male", "female", "other", "prefer_not_to_say"], {
     error: "Select a valid gender",
   }),

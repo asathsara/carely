@@ -64,6 +64,28 @@ export interface SendVerificationEmailParams {
   expiryHours?: number;
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderTemplate(
+  template: string,
+  tokens: Record<string, string>,
+  escapeFn?: (val: string) => string
+): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => {
+    if (key in tokens) {
+      return escapeFn ? escapeFn(tokens[key]) : tokens[key];
+    }
+    return match;
+  });
+}
+
 export async function sendPatientVerificationEmail({
   to,
   name,
@@ -73,12 +95,12 @@ export async function sendPatientVerificationEmail({
   const hospitalName = await getHospitalName();
   const { html, txt } = await getEmailTemplates();
 
-  const replaceTokens = (content: string) =>
-    content
-      .replaceAll("{{patient_name}}", name)
-      .replaceAll("{{verification_url}}", verificationUrl)
-      .replaceAll("{{expiry_hours}}", String(expiryHours))
-      .replaceAll("{{hospital_name}}", hospitalName);
+  const tokens: Record<string, string> = {
+    patient_name: name,
+    verification_url: verificationUrl,
+    expiry_hours: String(expiryHours),
+    hospital_name: hospitalName,
+  };
 
   const emailFrom = process.env.SMTP_FROM || `"${hospitalName}" <no-reply@carely.local>`;
 
@@ -86,7 +108,7 @@ export async function sendPatientVerificationEmail({
     from: emailFrom,
     to,
     subject: `Verify your ${hospitalName} account`,
-    text: replaceTokens(txt),
-    html: replaceTokens(html),
+    text: renderTemplate(txt, tokens),
+    html: renderTemplate(html, tokens, escapeHtml),
   });
 }

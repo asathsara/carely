@@ -31,52 +31,61 @@ function LoginForm({ defaultValues }: { defaultValues: LoginInput }) {
   const onSubmit = async (values: LoginInput) => {
     setLoginError("");
 
+    // 1. Check if input matches prototype mock staff credentials
+    if (
+      values.email === mockCredentials.doctor.email &&
+      values.password === mockCredentials.doctor.password
+    ) {
+      router.push("/doctor");
+      return;
+    }
+    if (
+      values.email === mockCredentials.nurse.email &&
+      values.password === mockCredentials.nurse.password
+    ) {
+      router.push("/nurse/vitals");
+      return;
+    }
+    if (
+      values.email === mockCredentials.receptionist.email &&
+      values.password === mockCredentials.receptionist.password
+    ) {
+      router.push("/reception/register");
+      return;
+    }
+    if (
+      values.email === mockCredentials.pharmacist.email &&
+      values.password === mockCredentials.pharmacist.password
+    ) {
+      router.push("/pharmacy");
+      return;
+    }
+    if (
+      values.email === mockCredentials.admin.email &&
+      values.password === mockCredentials.admin.password
+    ) {
+      router.push("/admin");
+      return;
+    }
+
+    // 2. Real patient sign-in via Better Auth
     try {
       const { data, error } = await authClient.signIn.email({
         email: values.email,
         password: values.password,
       });
 
-      if (!error && data) {
+      if (error) {
+        setLoginError(error.message || "Invalid email or password.");
+        return;
+      }
+
+      if (data) {
         router.push("/patient/dashboard");
         return;
       }
     } catch {
-      // Fallback to mock profiles below
-    }
-
-    if (
-      values.email === mockCredentials.patient.email &&
-      values.password === mockCredentials.patient.password
-    ) {
-      router.push("/patient");
-    } else if (
-      values.email === mockCredentials.doctor.email &&
-      values.password === mockCredentials.doctor.password
-    ) {
-      router.push("/doctor");
-    } else if (
-      values.email === mockCredentials.nurse.email &&
-      values.password === mockCredentials.nurse.password
-    ) {
-      router.push("/nurse/vitals");
-    } else if (
-      values.email === mockCredentials.receptionist.email &&
-      values.password === mockCredentials.receptionist.password
-    ) {
-      router.push("/reception/register");
-    } else if (
-      values.email === mockCredentials.pharmacist.email &&
-      values.password === mockCredentials.pharmacist.password
-    ) {
-      router.push("/pharmacy");
-    } else if (
-      values.email === mockCredentials.admin.email &&
-      values.password === mockCredentials.admin.password
-    ) {
-      router.push("/admin");
-    } else {
-      setLoginError("Email or password does not match a mock profile.");
+      setLoginError("An unexpected error occurred during sign in. Please try again.");
     }
   };
 

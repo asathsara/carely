@@ -20,7 +20,7 @@ export function LogoutButton() {
     <button
       type="button"
       onClick={handleLogout}
-      className="flex w-full items-center gap-3 px-3 py-2 text-sm font-medium text-foreground hover:text-destructive transition-colors text-left"
+      className="text-foreground hover:text-destructive flex w-full items-center gap-3 px-3 py-2 text-left text-sm font-medium transition-colors"
     >
       <LogOut size={SIDEBAR_ICON_SIZE} />
       Log out
