@@ -1,9 +1,9 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { admin } from "better-auth/plugins";
+import { admin, emailOTP } from "better-auth/plugins";
 import { db } from "@/lib/db";
 import { account, session, user, verification } from "@/lib/db/schema/auth";
-import { sendPatientVerificationEmail } from "@/lib/mail";
+import { sendPatientVerificationOTP } from "@/lib/mail";
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
@@ -22,15 +22,7 @@ export const auth = betterAuth({
     requireEmailVerification: true,
   },
   emailVerification: {
-    sendOnSignUp: true,
     autoSignInAfterVerification: true,
-    sendVerificationEmail: async ({ user: unverifiedUser, url }) => {
-      await sendPatientVerificationEmail({
-        to: unverifiedUser.email,
-        name: unverifiedUser.name,
-        verificationUrl: url,
-      });
-    },
   },
   user: {
     additionalFields: {
@@ -41,5 +33,21 @@ export const auth = betterAuth({
       },
     },
   },
-  plugins: [admin()],
+  plugins: [
+    admin(),
+    emailOTP({
+      overrideDefaultEmailVerification: true,
+      sendVerificationOnSignUp: true,
+      expiresIn: 600,
+      async sendVerificationOTP({ email, otp, type }) {
+        if (type === "email-verification") {
+          await sendPatientVerificationOTP({
+            to: email,
+            otp,
+            expiryMinutes: 10,
+          });
+        }
+      },
+    }),
+  ],
 });

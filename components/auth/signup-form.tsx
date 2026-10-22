@@ -3,10 +3,18 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AtSign, CheckCircle2, Eye, EyeOff, Mail, RefreshCw } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSeparator,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
+import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { authClient } from "@/lib/auth-client";
 import { INLINE_ICON_SIZE } from "@/lib/constants/ui";
 import type { SignupInput } from "@/lib/schemas/auth";
@@ -15,8 +23,12 @@ import { signupSchema } from "@/lib/schemas/auth";
 const RESEND_COOLDOWN_SECONDS = 60;
 
 function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
+  const router = useRouter();
   const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [otp, setOtp] = useState("");
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [isResending, setIsResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
@@ -47,7 +59,6 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
         email: values.email,
         password: values.password,
         name: values.name,
-        callbackURL: "/verify-email",
       });
 
       if (error) {
@@ -62,26 +73,52 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
     }
   };
 
+  const handleVerifyOtp = async (codeToVerify?: string) => {
+    const code = (codeToVerify ?? otp).trim();
+    if (!/^\d{6}$/.test(code) || isVerifying || !submittedEmail) return;
+
+    setIsVerifying(true);
+    setOtpError(null);
+
+    try {
+      const { error } = await authClient.emailOtp.verifyEmail({
+        email: submittedEmail,
+        otp: code,
+      });
+
+      if (error) {
+        setOtpError(error.message || "Invalid or expired verification code.");
+        return;
+      }
+
+      router.push("/patient/onboarding");
+    } catch {
+      setOtpError("An unexpected error occurred while verifying. Please try again.");
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
   const handleResend = async () => {
     if (!submittedEmail || cooldown > 0 || isResending) return;
     setIsResending(true);
     setResendSuccess(false);
-    setServerError(null);
+    setOtpError(null);
 
     try {
-      const { error } = await authClient.sendVerificationEmail({
+      const { error } = await authClient.emailOtp.sendVerificationOtp({
         email: submittedEmail,
-        callbackURL: "/verify-email",
+        type: "email-verification",
       });
 
       if (error) {
-        setServerError(error.message || "Failed to resend verification link.");
+        setOtpError(error.message || "Failed to resend verification code.");
       } else {
         setResendSuccess(true);
         setCooldown(RESEND_COOLDOWN_SECONDS);
       }
     } catch {
-      setServerError("Could not resend email. Please try again later.");
+      setOtpError("Could not resend code. Please try again later.");
     } finally {
       setIsResending(false);
     }
@@ -90,36 +127,79 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
   if (submittedEmail) {
     return (
       <div className="space-y-5 text-center">
-        <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+        <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-primary/10 text-primary">
           <Mail className="size-7" />
         </div>
 
-        <div className="space-y-2">
-          <h3 className="text-lg font-semibold text-foreground">Check your email</h3>
+        <div className="space-y-1.5">
+          <h3 className="text-xl font-bold tracking-tight text-foreground">Verify your email</h3>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            We sent a verification link to <span className="font-medium text-foreground">{submittedEmail}</span>.
-            Please verify your email address before continuing.
+            We sent a 6-digit verification code to{" "}
+            <span className="font-semibold text-foreground">{submittedEmail}</span>.
           </p>
         </div>
 
-        {serverError ? (
+        {otpError ? (
           <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-            {serverError}
+            {otpError}
           </div>
         ) : null}
 
         {resendSuccess ? (
           <div className="flex items-center justify-center gap-2 rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">
             <CheckCircle2 className="size-4" />
-            Verification email resent successfully!
+            New verification code sent!
           </div>
         ) : null}
 
+        <div className="flex justify-center py-2">
+          <InputOTP
+            maxLength={6}
+            pattern={REGEXP_ONLY_DIGITS}
+            value={otp}
+            onChange={(val) => {
+              setOtp(val);
+              if (val.length === 6) {
+                handleVerifyOtp(val);
+              }
+            }}
+            disabled={isVerifying}
+            autoFocus
+          >
+            <InputOTPGroup>
+              <InputOTPSlot index={0} />
+              <InputOTPSlot index={1} />
+              <InputOTPSlot index={2} />
+            </InputOTPGroup>
+            <InputOTPSeparator />
+            <InputOTPGroup>
+              <InputOTPSlot index={3} />
+              <InputOTPSlot index={4} />
+              <InputOTPSlot index={5} />
+            </InputOTPGroup>
+          </InputOTP>
+        </div>
+
+        <Button
+          type="button"
+          fullWidth
+          onClick={() => handleVerifyOtp()}
+          disabled={otp.length !== 6 || isVerifying}
+        >
+          {isVerifying ? (
+            <span className="flex items-center justify-center gap-2">
+              <RefreshCw className="size-4 animate-spin" /> Verifying…
+            </span>
+          ) : (
+            "Verify & Continue"
+          )}
+        </Button>
+
         {process.env.NODE_ENV === "development" ? (
-          <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-xs text-muted-foreground">
-            <p className="font-medium text-foreground">Local Development Mode</p>
+          <div className="rounded-lg border border-border/60 bg-muted/30 p-3.5 text-xs text-muted-foreground">
+            <p className="font-semibold text-foreground">Local Development Mode</p>
             <p className="mt-1">
-              Emails are delivered to your local Mailpit instance. Check{" "}
+              Check your local Mailpit instance at{" "}
               <a
                 href="http://localhost:8025"
                 target="_blank"
@@ -128,41 +208,39 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
               >
                 http://localhost:8025
               </a>{" "}
-              to view and click your link.
+              to view your 6-digit OTP code.
             </p>
           </div>
         ) : null}
 
-        <div className="pt-2">
-          <Button
-            type="button"
-            variant="outline"
-            fullWidth
-            onClick={handleResend}
-            disabled={cooldown > 0 || isResending}
-          >
-            {isResending ? (
-              <span className="flex items-center gap-2">
-                <RefreshCw className="size-4 animate-spin" /> Resending…
-              </span>
-            ) : cooldown > 0 ? (
-              `Resend email in ${cooldown}s`
-            ) : (
-              "Resend verification email"
-            )}
-          </Button>
-        </div>
-
-        <p className="text-xs text-muted-foreground">
-          Wrong email address?{" "}
+        <div className="flex items-center justify-between pt-2 text-xs">
           <button
             type="button"
-            onClick={() => setSubmittedEmail(null)}
-            className="font-medium text-primary hover:underline"
+            onClick={() => {
+              setSubmittedEmail(null);
+              setOtp("");
+              setOtpError(null);
+            }}
+            className="text-muted-foreground hover:text-foreground font-medium"
           >
-            Start over
+            ← Change email
           </button>
-        </p>
+
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={cooldown > 0 || isResending}
+            className="text-primary hover:underline disabled:no-underline font-semibold"
+          >
+            {isResending ? (
+              "Sending…"
+            ) : cooldown > 0 ? (
+              `Resend in ${cooldown}s`
+            ) : (
+              "Resend code"
+            )}
+          </button>
+        </div>
       </div>
     );
   }
@@ -241,9 +319,9 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
           <AtSign size={INLINE_ICON_SIZE} />
         </div>
         <div className="space-y-1">
-          <p className="text-sm font-semibold">Verification link required</p>
+          <p className="text-sm font-semibold">Verification code required</p>
           <p className="text-muted-foreground text-xs leading-relaxed font-normal">
-            A confirmation link will be sent to your email to verify and activate your
+            A 6-digit verification code will be sent to your email to verify and activate your
             patient account.
           </p>
         </div>

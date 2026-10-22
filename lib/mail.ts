@@ -18,16 +18,16 @@ export const mailer = nodemailer.createTransport({
   ...(user && pass ? { auth: { user, pass } } : {}),
 });
 
-let cachedHtmlTemplate: string | null = null;
-let cachedTxtTemplate: string | null = null;
+let cachedOtpHtmlTemplate: string | null = null;
+let cachedOtpTxtTemplate: string | null = null;
 
-async function getEmailTemplates() {
-  if (process.env.NODE_ENV === "production" && cachedHtmlTemplate && cachedTxtTemplate) {
-    return { html: cachedHtmlTemplate, txt: cachedTxtTemplate };
+async function getOtpEmailTemplates() {
+  if (process.env.NODE_ENV === "production" && cachedOtpHtmlTemplate && cachedOtpTxtTemplate) {
+    return { html: cachedOtpHtmlTemplate, txt: cachedOtpTxtTemplate };
   }
 
-  const htmlPath = path.join(process.cwd(), "templates", "emails", "verify-email.html");
-  const txtPath = path.join(process.cwd(), "templates", "emails", "verify-email.txt");
+  const htmlPath = path.join(process.cwd(), "templates", "emails", "verify-otp.html");
+  const txtPath = path.join(process.cwd(), "templates", "emails", "verify-otp.txt");
 
   const [html, txt] = await Promise.all([
     fs.readFile(htmlPath, "utf-8"),
@@ -35,8 +35,8 @@ async function getEmailTemplates() {
   ]);
 
   if (process.env.NODE_ENV === "production") {
-    cachedHtmlTemplate = html;
-    cachedTxtTemplate = txt;
+    cachedOtpHtmlTemplate = html;
+    cachedOtpTxtTemplate = txt;
   }
 
   return { html, txt };
@@ -55,13 +55,6 @@ export async function getHospitalName(): Promise<string> {
   } catch {
     return fallback;
   }
-}
-
-export interface SendVerificationEmailParams {
-  to: string;
-  name: string;
-  verificationUrl: string;
-  expiryHours?: number;
 }
 
 function escapeHtml(str: string): string {
@@ -86,20 +79,24 @@ function renderTemplate(
   });
 }
 
-export async function sendPatientVerificationEmail({
+export interface SendVerificationOTPParams {
+  to: string;
+  otp: string;
+  expiryMinutes?: number;
+}
+
+export async function sendPatientVerificationOTP({
   to,
-  name,
-  verificationUrl,
-  expiryHours = 24,
-}: SendVerificationEmailParams) {
+  otp,
+  expiryMinutes = 10,
+}: SendVerificationOTPParams) {
   const hospitalName = await getHospitalName();
-  const { html, txt } = await getEmailTemplates();
+  const { html, txt } = await getOtpEmailTemplates();
 
   const tokens: Record<string, string> = {
-    patient_name: name,
-    verification_url: verificationUrl,
-    expiry_hours: String(expiryHours),
     hospital_name: hospitalName,
+    otp_code: otp,
+    expiry_minutes: String(expiryMinutes),
   };
 
   const emailFrom = process.env.SMTP_FROM || `"${hospitalName}" <no-reply@carely.local>`;
@@ -107,7 +104,7 @@ export async function sendPatientVerificationEmail({
   return mailer.sendMail({
     from: emailFrom,
     to,
-    subject: `Verify your ${hospitalName} account`,
+    subject: `Your ${hospitalName} verification code`,
     text: renderTemplate(txt, tokens),
     html: renderTemplate(html, tokens, escapeHtml),
   });
