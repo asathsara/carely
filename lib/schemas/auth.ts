@@ -1,27 +1,38 @@
 import { z } from "zod";
 
 export const loginSchema = z.object({
-  email: z.email("Enter a valid email address"),
+  email: z.string().email("Enter a valid email address"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   rememberMe: z.boolean(),
 });
 
 export const signupSchema = z
   .object({
-    firstName: z.string().trim().min(1, "Enter your first name"),
-    lastName: z.string().trim().min(1, "Enter your last name"),
-    email: z.email("Enter a valid email address"),
-    phone: z.string().trim().min(7, "Enter a valid mobile number"),
+    name: z.string().trim().min(2, "Full name must be at least 2 characters"),
+    email: z.string().email("Enter a valid email address"),
     password: z.string().min(8, "Password must be at least 8 characters"),
-    confirmPassword: z.string(),
+    confirmPassword: z.string().min(8, "Confirm your password"),
   })
-  .refine((values) => values.password === values.confirmPassword, {
+  .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
     path: ["confirmPassword"],
   });
 
+export const patientOnboardingSchema = z.object({
+  fullName: z.string().trim().min(2, "Full name must be at least 2 characters"),
+  phone: z.string().trim().min(7, "Enter a valid telephone number"),
+  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter a valid date (YYYY-MM-DD)"),
+  gender: z.enum(["male", "female", "other", "prefer_not_to_say"], {
+    error: "Select a valid gender",
+  }),
+  address: z.string().trim().optional(),
+  emergencyContactName: z.string().trim().optional(),
+  emergencyContactPhone: z.string().trim().optional(),
+});
+
 export type LoginInput = z.infer<typeof loginSchema>;
 export type SignupInput = z.infer<typeof signupSchema>;
+export type PatientOnboardingInput = z.infer<typeof patientOnboardingSchema>;
 
 export const roleSchema = z.enum([
   "patient",
@@ -31,8 +42,9 @@ export const roleSchema = z.enum([
   "pharmacist",
   "admin",
 ]);
+
 export const mockCredentialSchema = z.object({
-  email: z.email(),
+  email: z.string().email(),
   password: z.string().min(1),
   role: roleSchema,
 });

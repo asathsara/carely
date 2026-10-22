@@ -9,8 +9,8 @@ import { Controller, useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { authClient } from "@/lib/auth-client";
 import { mockCredentials } from "@/lib/mock/auth";
-import { appContent } from "@/lib/mock/content";
 import type { LoginInput } from "@/lib/schemas/auth";
 import { loginSchema } from "@/lib/schemas/auth";
 
@@ -30,7 +30,20 @@ function LoginForm({ defaultValues }: { defaultValues: LoginInput }) {
 
   const onSubmit = async (values: LoginInput) => {
     setLoginError("");
-    console.log(`${appContent.brand.name} mock sign in`, values);
+
+    try {
+      const { data, error } = await authClient.signIn.email({
+        email: values.email,
+        password: values.password,
+      });
+
+      if (!error && data) {
+        router.push("/patient/dashboard");
+        return;
+      }
+    } catch {
+      // Fallback to mock profiles below
+    }
 
     if (
       values.email === mockCredentials.patient.email &&
