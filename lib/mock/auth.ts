@@ -8,10 +8,8 @@ export const loginDefaultValues: LoginInput = {
 };
 
 export const signupDefaultValues: SignupInput = {
-  firstName: "",
-  lastName: "",
+  name: "",
   email: "",
-  phone: "",
   password: "",
   confirmPassword: "",
 };

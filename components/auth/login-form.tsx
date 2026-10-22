@@ -9,8 +9,8 @@ import { Controller, useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { authClient } from "@/lib/auth-client";
 import { mockCredentials } from "@/lib/mock/auth";
-import { appContent } from "@/lib/mock/content";
 import type { LoginInput } from "@/lib/schemas/auth";
 import { loginSchema } from "@/lib/schemas/auth";
 
@@ -30,40 +30,62 @@ function LoginForm({ defaultValues }: { defaultValues: LoginInput }) {
 
   const onSubmit = async (values: LoginInput) => {
     setLoginError("");
-    console.log(`${appContent.brand.name} mock sign in`, values);
 
+    // 1. Check if input matches prototype mock staff credentials
     if (
-      values.email === mockCredentials.patient.email &&
-      values.password === mockCredentials.patient.password
-    ) {
-      router.push("/patient");
-    } else if (
       values.email === mockCredentials.doctor.email &&
       values.password === mockCredentials.doctor.password
     ) {
       router.push("/doctor");
-    } else if (
+      return;
+    }
+    if (
       values.email === mockCredentials.nurse.email &&
       values.password === mockCredentials.nurse.password
     ) {
       router.push("/nurse/vitals");
-    } else if (
+      return;
+    }
+    if (
       values.email === mockCredentials.receptionist.email &&
       values.password === mockCredentials.receptionist.password
     ) {
       router.push("/reception/register");
-    } else if (
+      return;
+    }
+    if (
       values.email === mockCredentials.pharmacist.email &&
       values.password === mockCredentials.pharmacist.password
     ) {
       router.push("/pharmacy");
-    } else if (
+      return;
+    }
+    if (
       values.email === mockCredentials.admin.email &&
       values.password === mockCredentials.admin.password
     ) {
       router.push("/admin");
-    } else {
-      setLoginError("Email or password does not match a mock profile.");
+      return;
+    }
+
+    // 2. Real patient sign-in via Better Auth
+    try {
+      const { data, error } = await authClient.signIn.email({
+        email: values.email,
+        password: values.password,
+      });
+
+      if (error) {
+        setLoginError(error.message || "Invalid email or password.");
+        return;
+      }
+
+      if (data) {
+        router.push("/patient/dashboard");
+        return;
+      }
+    } catch {
+      setLoginError("An unexpected error occurred during sign in. Please try again.");
     }
   };
 

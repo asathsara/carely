@@ -1,9 +1,7 @@
-import Link from "next/link";
 import { Suspense, type ReactNode } from "react";
-import { LogOut } from "lucide-react";
+import { LogoutButton } from "@/components/auth/logout-button";
 import { Avatar } from "@/components/ui/avatar";
 import { MobileNavigation, NavLinks } from "@/components/workspace/nav-links";
-import { SIDEBAR_ICON_SIZE } from "@/lib/constants/ui";
 import { roleNavigation } from "@/lib/config/navigation";
 import { appContent } from "@/lib/mock/content";
 
@@ -99,13 +97,7 @@ function AppShell({ children, role, user }: AppShellProps) {
             </div>
           </div>
         )}
-        <Link
-          href="/login"
-          className="flex items-center gap-3 px-3 py-2 text-sm font-medium"
-        >
-          <LogOut size={SIDEBAR_ICON_SIZE} />
-          Log out
-        </Link>
+        <LogoutButton />
       </div>
     </aside>
   );
