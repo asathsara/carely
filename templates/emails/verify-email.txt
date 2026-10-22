@@ -1,0 +1,11 @@
+Welcome to {{hospital_name}}, {{patient_name}}!
+
+Thank you for registering. To confirm your identity and complete your patient account setup, please verify your email address by opening the link below:
+
+{{verification_url}}
+
+This link will expire in {{expiry_hours}} hours. If you did not create this account, please disregard this message.
+
+--
+{{hospital_name}}
+Confidential Patient Services
