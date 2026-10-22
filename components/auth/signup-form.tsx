@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AtSign, CheckCircle2, Mail, RefreshCw } from "lucide-react";
+import { AtSign, CheckCircle2, Eye, EyeOff, Mail, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -20,6 +20,8 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
   const [cooldown, setCooldown] = useState(0);
   const [isResending, setIsResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const {
     register,
@@ -93,16 +95,15 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
         </div>
 
         <div className="space-y-2">
-          <h3 className="text-foreground text-lg font-semibold">Check your email</h3>
+          <h3 className="text-lg font-semibold text-foreground">Check your email</h3>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            We sent a verification link to{" "}
-            <span className="text-foreground font-medium">{submittedEmail}</span>. Please
-            verify your email address before continuing.
+            We sent a verification link to <span className="font-medium text-foreground">{submittedEmail}</span>.
+            Please verify your email address before continuing.
           </p>
         </div>
 
         {serverError ? (
-          <div className="bg-destructive/10 text-destructive rounded-md p-3 text-sm">
+          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
             {serverError}
           </div>
         ) : null}
@@ -115,15 +116,15 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
         ) : null}
 
         {process.env.NODE_ENV === "development" ? (
-          <div className="border-border/60 bg-muted/30 text-muted-foreground rounded-lg border p-4 text-xs">
-            <p className="text-foreground font-medium">Local Development Mode</p>
+          <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-xs text-muted-foreground">
+            <p className="font-medium text-foreground">Local Development Mode</p>
             <p className="mt-1">
               Emails are delivered to your local Mailpit instance. Check{" "}
               <a
                 href="http://localhost:8025"
                 target="_blank"
                 rel="noreferrer"
-                className="text-primary font-medium underline"
+                className="font-medium text-primary underline"
               >
                 http://localhost:8025
               </a>{" "}
@@ -152,12 +153,12 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
           </Button>
         </div>
 
-        <p className="text-muted-foreground text-xs">
+        <p className="text-xs text-muted-foreground">
           Wrong email address?{" "}
           <button
             type="button"
             onClick={() => setSubmittedEmail(null)}
-            className="text-primary font-medium hover:underline"
+            className="font-medium text-primary hover:underline"
           >
             Start over
           </button>
@@ -169,7 +170,7 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
   return (
     <form className="space-y-4" onSubmit={handleSubmit(onSubmit)} noValidate>
       {serverError ? (
-        <div className="bg-destructive/10 text-destructive rounded-md p-3 text-sm">
+        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
           {serverError}
         </div>
       ) : null}
@@ -198,9 +199,19 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
           id="signupPassword"
           label="Password"
           placeholder="Create a password (min. 8 characters)"
-          type="password"
+          type={showPassword ? "text" : "password"}
           autoComplete="new-password"
           error={errors.password?.message}
+          endAdornment={
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring rounded p-1 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          }
           {...register("password")}
         />
 
@@ -208,9 +219,19 @@ function SignupForm({ defaultValues }: { defaultValues: SignupInput }) {
           id="confirmPassword"
           label="Confirm password"
           placeholder="Repeat your password"
-          type="password"
+          type={showConfirmPassword ? "text" : "password"}
           autoComplete="new-password"
           error={errors.confirmPassword?.message}
+          endAdornment={
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              className="text-muted-foreground hover:text-foreground focus-visible:ring-ring rounded p-1 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+              aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+            >
+              {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          }
           {...register("confirmPassword")}
         />
       </div>
