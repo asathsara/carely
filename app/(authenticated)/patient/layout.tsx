@@ -5,6 +5,8 @@ import { PatientDemoProvider } from "@/components/patient/patient-demo-provider"
 import { AppShell } from "@/components/workspace/app-shell";
 import { auth } from "@/lib/auth";
 
+export const instant = false;
+
 function getInitials(name: string) {
   return (
     name
