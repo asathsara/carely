@@ -20,6 +20,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: true,
+    resetPasswordTokenExpiresIn: 86400, // 24 hours globally
   },
   emailVerification: {
     autoSignInAfterVerification: true,
