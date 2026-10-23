@@ -1,5 +1,6 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { env } from "@/lib/env";
 import * as appointmentSchema from "./schema/appointment";
 import * as authSchema from "./schema/auth";
 import * as availabilitySchema from "./schema/doctor-availability";
@@ -8,14 +9,8 @@ import * as patientSchema from "./schema/patient";
 import * as settingsSchema from "./schema/settings";
 import * as specialtySchema from "./schema/specialty";
 
-const connectionString = process.env.DATABASE_URL;
-
-if (!connectionString && process.env.NODE_ENV === "production") {
-  throw new Error("DATABASE_URL environment variable is required in production.");
-}
-
 const activeConnectionString =
-  connectionString || "postgresql://carely_user:carely_password@localhost:5432/carely_db";
+  env.DATABASE_URL || "postgresql://carely_user:carely_password@localhost:5432/carely_db";
 
 const globalForDb = globalThis as unknown as {
   conn: postgres.Sql | undefined;

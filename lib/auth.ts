@@ -3,6 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin, emailOTP } from "better-auth/plugins";
 import { db } from "@/lib/db";
 import { account, session, user, verification } from "@/lib/db/schema/auth";
+import { env } from "@/lib/env";
 import { sendPatientVerificationOTP } from "@/lib/mail";
 
 export const auth = betterAuth({
@@ -15,8 +16,8 @@ export const auth = betterAuth({
       verification,
     },
   }),
-  secret: process.env.BETTER_AUTH_SECRET,
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+  secret: env.BETTER_AUTH_SECRET,
+  baseURL: env.BETTER_AUTH_URL,
   emailAndPassword: {
     enabled: true,
     requireEmailVerification: true,

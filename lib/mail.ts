@@ -4,18 +4,15 @@ import nodemailer from "nodemailer";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { hospitalSettings } from "@/lib/db/schema/settings";
-
-const host = process.env.SMTP_HOST || "localhost";
-const port = Number(process.env.SMTP_PORT) || 1025;
-const secure = process.env.SMTP_SECURE === "true";
-const user = process.env.SMTP_USER;
-const pass = process.env.SMTP_PASS;
+import { env } from "@/lib/env";
 
 export const mailer = nodemailer.createTransport({
-  host,
-  port,
-  secure,
-  ...(user && pass ? { auth: { user, pass } } : {}),
+  host: env.SMTP_HOST,
+  port: env.SMTP_PORT,
+  secure: env.SMTP_SECURE,
+  ...(env.SMTP_USER && env.SMTP_PASS
+    ? { auth: { user: env.SMTP_USER, pass: env.SMTP_PASS } }
+    : {}),
 });
 
 let cachedOtpHtmlTemplate: string | null = null;
@@ -43,7 +40,7 @@ async function getOtpEmailTemplates() {
 }
 
 export async function getHospitalName(): Promise<string> {
-  const fallback = process.env.HOSPITAL_NAME || "Carely Hospital";
+  const fallback = env.HOSPITAL_NAME || "Carely Hospital";
   try {
     const settings = await db
       .select({ name: hospitalSettings.hospitalName })
@@ -99,7 +96,7 @@ export async function sendPatientVerificationOTP({
     expiry_minutes: String(expiryMinutes),
   };
 
-  const emailFrom = process.env.SMTP_FROM || `"${hospitalName}" <no-reply@carely.local>`;
+  const emailFrom = env.SMTP_FROM || `"${hospitalName}" <no-reply@carely.local>`;
 
   return mailer.sendMail({
     from: emailFrom,
