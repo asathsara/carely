@@ -10,9 +10,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { authClient } from "@/lib/auth-client";
+import { getDefaultRouteForRole } from "@/lib/config/navigation";
 import { mockCredentials } from "@/lib/mock/auth";
+import { getSafeRedirectUrl } from "@/lib/safe-redirect";
 import type { LoginInput } from "@/lib/schemas/auth";
 import { loginSchema } from "@/lib/schemas/auth";
+
+function getRedirectDestination(fallback: string): string {
+  if (typeof window === "undefined") return fallback;
+  const raw = new URLSearchParams(window.location.search).get("callbackUrl");
+  const safe = getSafeRedirectUrl(raw, window.location.origin, fallback);
+  return safe === "/patient/dashboard" ? "/patient" : safe;
+}
 
 function LoginForm({ defaultValues }: { defaultValues: LoginInput }) {
   const router = useRouter();
@@ -36,43 +45,37 @@ function LoginForm({ defaultValues }: { defaultValues: LoginInput }) {
       values.email === mockCredentials.doctor.email &&
       values.password === mockCredentials.doctor.password
     ) {
-      router.push("/doctor");
+      router.push(getRedirectDestination("/doctor"));
       return;
     }
     if (
       values.email === mockCredentials.nurse.email &&
       values.password === mockCredentials.nurse.password
     ) {
-      router.push("/nurse/vitals");
+      router.push(getRedirectDestination("/nurse/vitals"));
       return;
     }
     if (
       values.email === mockCredentials.receptionist.email &&
       values.password === mockCredentials.receptionist.password
     ) {
-      router.push("/reception/register");
+      router.push(getRedirectDestination("/reception/register"));
       return;
     }
     if (
       values.email === mockCredentials.pharmacist.email &&
       values.password === mockCredentials.pharmacist.password
     ) {
-      router.push("/pharmacy");
-      return;
-    }
-    if (
-      values.email === mockCredentials.admin.email &&
-      values.password === mockCredentials.admin.password
-    ) {
-      router.push("/admin");
+      router.push(getRedirectDestination("/pharmacy"));
       return;
     }
 
-    // 2. Real patient sign-in via Better Auth
+    // 2. Real patient/staff sign-in via Better Auth
     try {
       const { data, error } = await authClient.signIn.email({
         email: values.email,
         password: values.password,
+        rememberMe: values.rememberMe,
       });
 
       if (error) {
@@ -81,7 +84,11 @@ function LoginForm({ defaultValues }: { defaultValues: LoginInput }) {
       }
 
       if (data) {
-        router.push("/patient/dashboard");
+        const userRole = (data.user as { role?: string })?.role;
+        const defaultDestination = getDefaultRouteForRole(userRole);
+        const destination = getRedirectDestination(defaultDestination);
+        router.push(destination);
+        router.refresh();
         return;
       }
     } catch {
