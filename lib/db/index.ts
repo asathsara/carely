@@ -1,8 +1,12 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import * as appointmentSchema from "./schema/appointment";
 import * as authSchema from "./schema/auth";
+import * as availabilitySchema from "./schema/doctor-availability";
+import * as doctorSchema from "./schema/doctor";
 import * as patientSchema from "./schema/patient";
 import * as settingsSchema from "./schema/settings";
+import * as specialtySchema from "./schema/specialty";
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -32,5 +36,19 @@ export const db = drizzle(conn, {
     ...authSchema,
     ...patientSchema,
     ...settingsSchema,
+    ...specialtySchema,
+    ...doctorSchema,
+    ...availabilitySchema,
+    ...appointmentSchema,
   },
 });
+
+export {
+  appointmentSchema,
+  authSchema,
+  availabilitySchema,
+  doctorSchema,
+  patientSchema,
+  settingsSchema,
+  specialtySchema,
+};
