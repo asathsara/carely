@@ -388,6 +388,7 @@ _Must be committed to `dev` first before branching to prevent schema or migratio
 
 ### 8.3 Track 2: Doctor Availability & Token Booking Engine (Teammate 2)
 
+- **First slice**: The recurring availability API and doctor form are implemented. See [Doctor availability](doctor-availability.md) for the API contract, validation coverage, and manual persistence checks. Booking engine and patient integration remain pending.
 - **Branch**: `feat/doctor-booking`
 - **Stories**: SCRUM-163, SCRUM-138
 - **Responsibilities**:
