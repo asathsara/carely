@@ -1,17 +1,30 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, lte, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { appointment } from "@/lib/db/schema/appointment";
 import { user } from "@/lib/db/schema/auth";
 import { doctor } from "@/lib/db/schema/doctor";
 import { doctorAvailability } from "@/lib/db/schema/doctor-availability";
 import { patient } from "@/lib/db/schema/patient";
+import { specialty } from "@/lib/db/schema/specialty";
 import {
   bookAppointmentSchema,
+  openDatesQuerySchema,
   type BookAppointmentParams,
   type BookAppointmentResult,
   type CancelAppointmentParams,
   type OpenDatesResponse,
 } from "@/lib/schemas/booking";
+
+export class BookingServiceError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number,
+    public code: string
+  ) {
+    super(message);
+    this.name = "BookingServiceError";
+  }
+}
 
 const colomboClock = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Colombo",
@@ -196,15 +209,94 @@ export async function bookAppointment(
   }
 }
 
-/**
- * Step 0 Contract Stub for listing open dates for a doctor.
- */
+/** Read-only discovery snapshot. Booking must recheck availability under its lock. */
 export async function getOpenDatesForDoctor(
-  _doctorId: string
+  doctorId: string
 ): Promise<OpenDatesResponse> {
-  throw new Error(
-    "getOpenDatesForDoctor is not implemented yet (scheduled for Track 2)."
-  );
+  if (!openDatesQuerySchema.safeParse({ doctorId }).success) {
+    throw new BookingServiceError("Provide a valid doctorId.", 400, "INVALID_INPUT");
+  }
+
+  const [profile] = await db
+    .select({
+      name: user.name,
+      isActive: doctor.isActive,
+      banned: user.banned,
+      role: user.role,
+      specialtyName: specialty.name,
+    })
+    .from(doctor)
+    .innerJoin(user, eq(doctor.userId, user.id))
+    .leftJoin(specialty, eq(doctor.specialtyId, specialty.id))
+    .where(eq(doctor.id, doctorId))
+    .limit(1);
+  if (!profile) {
+    throw new BookingServiceError("Doctor not found", 404, "DOCTOR_NOT_FOUND");
+  }
+  if (!profile.isActive || profile.banned || profile.role !== "doctor") {
+    throw new BookingServiceError("Doctor is currently inactive", 400, "DOCTOR_INACTIVE");
+  }
+
+  const now = colomboNow();
+  const start = new Date(`${now.date}T00:00:00.000Z`);
+  // Today through today + 13, using UTC arithmetic only on calendar date labels.
+  const window = Array.from({ length: 14 }, (_, offset) => {
+    const day = new Date(start);
+    day.setUTCDate(start.getUTCDate() + offset);
+    return { date: day.toISOString().slice(0, 10), dayOfWeek: day.getUTCDay() };
+  });
+  const sessions = await db
+    .select()
+    .from(doctorAvailability)
+    .where(
+      and(
+        eq(doctorAvailability.doctorId, doctorId),
+        eq(doctorAvailability.isActive, true)
+      )
+    );
+  const counts = await db
+    .select({
+      date: appointment.appointmentDate,
+      bookedCount: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(appointment)
+    .where(
+      and(
+        eq(appointment.doctorId, doctorId),
+        gte(appointment.appointmentDate, window[0].date),
+        lte(appointment.appointmentDate, window[13].date),
+        ne(appointment.status, "cancelled")
+      )
+    )
+    .groupBy(appointment.appointmentDate);
+
+  const byWeekday = new Map(sessions.map((session) => [session.dayOfWeek, session]));
+  const byDate = new Map(counts.map((count) => [count.date, count.bookedCount]));
+  const dates: OpenDatesResponse["dates"] = [];
+  for (const day of window) {
+    const session = byWeekday.get(day.dayOfWeek);
+    if (!session || (day.date === now.date && now.time >= session.endTime)) continue;
+
+    const bookedCount = byDate.get(day.date) ?? 0;
+    const availableCount = session.maxPatients - bookedCount;
+    if (availableCount <= 0) continue;
+
+    dates.push({
+      ...day,
+      startTime: session.startTime,
+      endTime: session.endTime,
+      maxPatients: session.maxPatients,
+      bookedCount,
+      availableCount,
+    });
+  }
+
+  return {
+    doctorId,
+    doctorName: profile.name,
+    ...(profile.specialtyName === null ? {} : { specialtyName: profile.specialtyName }),
+    dates,
+  };
 }
 
 /**

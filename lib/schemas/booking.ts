@@ -19,6 +19,8 @@ export const bookAppointmentSchema = z.object({
 
 export type BookAppointmentInput = z.infer<typeof bookAppointmentSchema>;
 
+export const openDatesQuerySchema = bookAppointmentSchema.pick({ doctorId: true });
+
 export interface BookAppointmentActor {
   userId: string;
   role: "patient" | "receptionist" | "admin" | "doctor" | "nurse" | "pharmacist" | string;

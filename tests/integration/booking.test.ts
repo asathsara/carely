@@ -18,6 +18,7 @@ import { user } from "@/lib/db/schema/auth";
 import { doctor } from "@/lib/db/schema/doctor";
 import { doctorAvailability } from "@/lib/db/schema/doctor-availability";
 import { patient } from "@/lib/db/schema/patient";
+import { specialty } from "@/lib/db/schema/specialty";
 import type { BookAppointmentParams } from "@/lib/schemas/booking";
 
 // Explicit opt-in only. Never connect to the application's DATABASE_URL.
@@ -41,6 +42,7 @@ describe.skipIf(!testConfig.adminUrl)("Transactional booking (PostgreSQL)", () =
   let connection: postgres.Sql;
   let database: ReturnType<typeof drizzle>;
   let bookAppointment: typeof import("@/lib/services/booking").bookAppointment;
+  let getOpenDatesForDoctor: typeof import("@/lib/services/booking").getOpenDatesForDoctor;
   let input: BookAppointmentParams;
   let doctorUserId: string;
   let otherPatientId: string;
@@ -52,7 +54,7 @@ describe.skipIf(!testConfig.adminUrl)("Transactional booking (PostgreSQL)", () =
     connection = databaseModule.conn;
     database = databaseModule.db;
     await migrate(database, { migrationsFolder: "./drizzle" });
-    ({ bookAppointment } = await import("@/lib/services/booking"));
+    ({ bookAppointment, getOpenDatesForDoctor } = await import("@/lib/services/booking"));
   }, 30_000);
 
   afterAll(async () => {
@@ -124,6 +126,170 @@ describe.skipIf(!testConfig.adminUrl)("Transactional booking (PostgreSQL)", () =
   async function setCapacity(maxPatients: number) {
     await database.update(doctorAvailability).set({ maxPatients });
   }
+
+  describe("Open date discovery", () => {
+    it("returns recurring sessions, metadata and initial capacity in date order", async () => {
+      const [specialtyRow] = await database.select().from(specialty).limit(1);
+      await database.update(doctor).set({ specialtyId: specialtyRow.id });
+      expect(await getOpenDatesForDoctor(input.doctorId)).toEqual({
+        doctorId: input.doctorId,
+        doctorName: "Doctor",
+        specialtyName: specialtyRow.name,
+        dates: ["2026-10-31", "2026-11-07"].map((date) => ({
+          date,
+          dayOfWeek: 6,
+          startTime: "09:00:00",
+          endTime: "12:00:00",
+          maxPatients: 2,
+          bookedCount: 0,
+          availableCount: 2,
+        })),
+      });
+    });
+
+    it("includes exactly today through day 13 across the month boundary", async () => {
+      await database.delete(doctorAvailability);
+      await database.insert(doctorAvailability).values(
+        Array.from({ length: 7 }, (_, dayOfWeek) => ({
+          doctorId: input.doctorId,
+          dayOfWeek,
+          startTime: "09:00",
+          endTime: "12:00",
+          maxPatients: 2,
+        }))
+      );
+      const result = await getOpenDatesForDoctor(input.doctorId);
+      expect(result.dates).toHaveLength(14);
+      expect(result.dates[0].date).toBe("2026-10-31");
+      expect(result.dates[13].date).toBe("2026-11-13");
+      expect(result.dates.some((day) => day.date === "2026-11-14")).toBe(false);
+    });
+
+    it("excludes full dates and restores capacity after a cancellation", async () => {
+      await setCapacity(1);
+      await bookAppointment(input);
+      expect(
+        (await getOpenDatesForDoctor(input.doctorId)).dates.map((day) => day.date)
+      ).toEqual(["2026-11-07"]);
+      await database.update(appointment).set({ status: "cancelled" });
+      expect((await getOpenDatesForDoctor(input.doctorId)).dates[0]).toMatchObject({
+        date: input.date,
+        bookedCount: 0,
+        availableCount: 1,
+      });
+    });
+
+    it("counts completed visits and keeps each date's capacity separate", async () => {
+      await bookAppointment(input);
+      await database.update(appointment).set({ status: "completed" });
+      const result = await getOpenDatesForDoctor(input.doctorId);
+      expect(result.dates[0]).toMatchObject({ bookedCount: 1, availableCount: 1 });
+      expect(result.dates[1]).toMatchObject({ bookedCount: 0, availableCount: 2 });
+    });
+
+    it("does not count another doctor's appointments", async () => {
+      await bookAppointment(input);
+      const otherUserId = randomUUID();
+      await database
+        .insert(user)
+        .values({
+          id: otherUserId,
+          name: "Other Doctor",
+          email: `${otherUserId}@test.invalid`,
+          role: "doctor",
+        });
+      const [otherDoctor] = await database
+        .insert(doctor)
+        .values({ userId: otherUserId })
+        .returning();
+      await database
+        .insert(doctorAvailability)
+        .values({
+          doctorId: otherDoctor.id,
+          dayOfWeek: 6,
+          startTime: "09:00",
+          endTime: "12:00",
+          maxPatients: 1,
+        });
+      expect((await getOpenDatesForDoctor(otherDoctor.id)).dates[0]).toMatchObject({
+        bookedCount: 0,
+        availableCount: 1,
+      });
+    });
+
+    it("returns empty dates for missing or disabled sessions and omits absent specialty", async () => {
+      await database.update(doctorAvailability).set({ isActive: false });
+      expect(await getOpenDatesForDoctor(input.doctorId)).toEqual({
+        doctorId: input.doctorId,
+        doctorName: "Doctor",
+        dates: [],
+      });
+      await database.delete(doctorAvailability);
+      expect((await getOpenDatesForDoctor(input.doctorId)).dates).toEqual([]);
+    });
+
+    it("omits dates where capacity has been lowered below the booked count", async () => {
+      await bookAppointment(input);
+      await bookAppointment(input);
+      await setCapacity(1);
+      expect(
+        (await getOpenDatesForDoctor(input.doctorId)).dates.map((day) => day.date)
+      ).toEqual(["2026-11-07"]);
+    });
+
+    it("uses Colombo's day and start of the window when UTC is still the previous day", async () => {
+      vi.setSystemTime(new Date("2026-10-30T20:00:00Z")); // Saturday 01:30 Colombo
+      expect((await getOpenDatesForDoctor(input.doctorId)).dates[0].date).toBe(
+        "2026-10-31"
+      );
+      vi.setSystemTime(new Date("2026-10-31T20:00:00Z")); // Sunday 01:30 Colombo
+      expect(
+        (await getOpenDatesForDoctor(input.doctorId)).dates.map((day) => day.date)
+      ).toEqual(["2026-11-07", "2026-11-14"]);
+    });
+
+    it("excludes today at/after session end but keeps future sessions", async () => {
+      vi.setSystemTime(new Date("2026-10-31T06:29:59Z"));
+      expect((await getOpenDatesForDoctor(input.doctorId)).dates).toHaveLength(2);
+      for (const time of ["2026-10-31T06:30:00Z", "2026-10-31T06:30:01Z"]) {
+        vi.setSystemTime(new Date(time));
+        expect(
+          (await getOpenDatesForDoctor(input.doctorId)).dates.map((day) => day.date)
+        ).toEqual(["2026-11-07"]);
+      }
+    });
+
+    it("rejects invalid and nonexistent doctor IDs", async () => {
+      await expect(getOpenDatesForDoctor("invalid")).rejects.toMatchObject({
+        statusCode: 400,
+        code: "INVALID_INPUT",
+      });
+      await expect(getOpenDatesForDoctor(randomUUID())).rejects.toMatchObject({
+        statusCode: 404,
+        code: "DOCTOR_NOT_FOUND",
+      });
+    });
+
+    it("rejects inactive, banned, and reassigned doctor accounts", async () => {
+      await database.update(doctor).set({ isActive: false });
+      await expect(getOpenDatesForDoctor(input.doctorId)).rejects.toMatchObject({
+        code: "DOCTOR_INACTIVE",
+        statusCode: 400,
+      });
+      await database.update(doctor).set({ isActive: true });
+      await database.update(user).set({ banned: true }).where(eq(user.id, doctorUserId));
+      await expect(getOpenDatesForDoctor(input.doctorId)).rejects.toMatchObject({
+        code: "DOCTOR_INACTIVE",
+      });
+      await database
+        .update(user)
+        .set({ banned: false, role: "nurse" })
+        .where(eq(user.id, doctorUserId));
+      await expect(getOpenDatesForDoctor(input.doctorId)).rejects.toMatchObject({
+        code: "DOCTOR_INACTIVE",
+      });
+    });
+  });
 
   it("persists an online booking with token 1, fee and actor", async () => {
     const result = await bookAppointment(input);
@@ -222,27 +388,23 @@ describe.skipIf(!testConfig.adminUrl)("Transactional booking (PostgreSQL)", () =
       appointmentNo: 1,
     });
     const anotherUser = randomUUID();
-    await database
-      .insert(user)
-      .values({
-        id: anotherUser,
-        email: `${anotherUser}@test.invalid`,
-        name: "Other Doctor",
-        role: "doctor",
-      });
+    await database.insert(user).values({
+      id: anotherUser,
+      email: `${anotherUser}@test.invalid`,
+      name: "Other Doctor",
+      role: "doctor",
+    });
     const [anotherDoctor] = await database
       .insert(doctor)
       .values({ userId: anotherUser })
       .returning();
-    await database
-      .insert(doctorAvailability)
-      .values({
-        doctorId: anotherDoctor.id,
-        dayOfWeek: 6,
-        startTime: "09:00",
-        endTime: "12:00",
-        maxPatients: 1,
-      });
+    await database.insert(doctorAvailability).values({
+      doctorId: anotherDoctor.id,
+      dayOfWeek: 6,
+      startTime: "09:00",
+      endTime: "12:00",
+      maxPatients: 1,
+    });
     expect(await bookAppointment({ ...input, doctorId: anotherDoctor.id })).toMatchObject(
       { success: true, appointmentNo: 1 }
     );

@@ -1,7 +1,8 @@
 # Transactional appointment booking
 
 Task 8.3 responsibility 3 is implemented in `lib/services/booking.ts`.
-The open-dates API and patient integration (responsibilities 4 and 5) remain pending.
+The [open-dates API](open-dates.md) (responsibility 4) is also implemented.
+Patient integration and cancellation (responsibility 5) remain pending.
 
 ## Server contract
 
