@@ -1,19 +1,22 @@
 import Image from "next/image";
-import { Suspense } from "react";
 import type { Metadata } from "next";
 import { Card } from "@/components/ui/card";
 import { QueueStatus } from "@/components/patient/queue-status";
 import { StepGuide } from "@/components/patient/patient-shared";
 import { PageTitle } from "@/components/workspace/workspace-ui";
 import { appContent } from "@/lib/mock/content";
+import { requireRole } from "@/lib/auth-guard";
+import { getPatientAppointments } from "@/lib/services/patient-booking";
 export const metadata: Metadata = { title: "Live Queue" };
-export default function PatientQueuePage() {
+export default async function PatientQueuePage() {
+  const session = await requireRole("patient");
+  const appointments = await getPatientAppointments(session.user.id);
   return (
     <>
       <PageTitle
         eyebrow="Live status"
         title="Live queue"
-        description="Check your appointment and queue status. This view refreshes every 30 seconds while open."
+        description="Review your next appointment and check in with reception when you arrive."
         action={
           <Image
             src="/images/live-queue.svg"
@@ -26,13 +29,7 @@ export default function PatientQueuePage() {
       />
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,2.1fr)_minmax(0,1fr)]">
         <Card className="min-w-0 p-5 sm:p-6">
-          <Suspense
-            fallback={
-              <p className="text-muted-foreground text-sm">Loading queue status...</p>
-            }
-          >
-            <QueueStatus />
-          </Suspense>
+          <QueueStatus appointment={appointments.find((item) => item.isUpcoming)} />
         </Card>
         <Card className="min-w-0 p-5 sm:p-6">
           <h2 className="font-semibold">What to do now</h2>

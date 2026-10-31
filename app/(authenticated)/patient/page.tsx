@@ -1,11 +1,9 @@
-"use client";
-import { comparePatientAppointments } from "@/lib/mock/patient";
-
 import Image from "next/image";
 import { patientMedicines } from "@/lib/mock/patient";
 import Link from "next/link";
-import { usePatientDemo } from "@/components/patient/patient-demo-provider";
-import { patientDoctors, formatPatientDate } from "@/lib/mock/patient";
+import { formatPatientDate } from "@/lib/patient-appointments";
+import { requireRole } from "@/lib/auth-guard";
+import { getPatientAppointments } from "@/lib/services/patient-booking";
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FactCard, StatusBadge } from "@/components/patient/patient-shared";
@@ -13,18 +11,16 @@ import { DataList, PageTitle, Panel } from "@/components/workspace/workspace-ui"
 import { appContent, demoPeople } from "@/lib/mock/content";
 import { cn } from "@/lib/utils";
 
-export default function PatientPage() {
-  const { appointments } = usePatientDemo();
-  const upcoming = appointments
-    .filter((item) => item.status === "Confirmed")
-    .sort(comparePatientAppointments);
+export default async function PatientPage() {
+  const session = await requireRole("patient");
+  const appointments = await getPatientAppointments(session.user.id);
+  const upcoming = appointments.filter((item) => item.isUpcoming);
   const next = upcoming[0];
-  const doctor = patientDoctors.find((item) => item.id === next?.doctorId);
   return (
     <>
       <PageTitle
         eyebrow="Overview"
-        title="Good morning, Kavindi"
+        title={`Welcome, ${session.user.name.split(" ")[0]}`}
         description="Manage your appointments, queue status, and prescriptions from one place."
         action={
           <Image
@@ -39,7 +35,7 @@ export default function PatientPage() {
 
       <div className="mb-5 grid gap-5 lg:grid-cols-[2fr_1fr]">
         <Card className="p-5 sm:p-6">
-          {next && doctor ? (
+          {next ? (
             <>
               <div className="flex items-center justify-between gap-4">
                 <p className="text-primary text-xs font-semibold tracking-wider uppercase">
@@ -47,13 +43,13 @@ export default function PatientPage() {
                 </p>
                 <StatusBadge tone="green">Confirmed</StatusBadge>
               </div>
-              <h2 className="mt-3 text-xl font-bold">{doctor.name}</h2>
+              <h2 className="mt-3 text-xl font-bold">{next.doctorName}</h2>
               <p className="text-muted-foreground mt-1.5 text-xs sm:text-sm">
-                {doctor.specialty} &middot; {doctor.room}
+                {next.specialtyName ?? "General clinic"}
               </p>
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 <FactCard label="Date" value={formatPatientDate(next.date)} />
-                <FactCard label="Time" value={next.time} />
+                <FactCard label="Appointment number" value={`#${next.appointmentNo}`} />
                 <FactCard label="Reference" value={next.id} />
               </div>
               <div className="mt-4 flex flex-wrap gap-2.5">
@@ -75,7 +71,7 @@ export default function PatientPage() {
             <>
               <h2 className="text-xl font-bold">No upcoming appointments</h2>
               <p className="text-muted-foreground mt-2 text-sm">
-                Find a doctor and book an available slot.
+                Find a doctor and book an available clinic date.
               </p>
               <Link
                 className={cn(buttonVariants({ size: "sm" }), "mt-4")}
@@ -91,12 +87,13 @@ export default function PatientPage() {
           <p className="text-primary text-xs font-semibold tracking-wider uppercase">
             Live queue
           </p>
-          <h2 className="mt-3 text-xl font-bold">No active queue</h2>
+          <h2 className="mt-3 text-xl font-bold">Check in at reception</h2>
           <p className="text-muted-foreground mt-2 text-xs leading-relaxed sm:text-sm">
-            Your token will appear here after reception checks you in.
+            Keep your appointment number for your visit. Reception can help with check-in
+            and queue updates.
           </p>
           <div className="mt-4">
-            <StatusBadge tone="blue">Updates every 30 seconds</StatusBadge>
+            <StatusBadge tone="blue">Reception check-in</StatusBadge>
           </div>
           <Link
             className={cn(buttonVariants({ variant: "outline", size: "sm" }), "mt-4")}

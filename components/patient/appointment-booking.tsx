@@ -1,160 +1,213 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog,
-  DialogTrigger,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
   DialogFooter,
-  DialogClose,
 } from "@/components/ui/dialog";
 import { FactCard } from "@/components/patient/patient-shared";
-import { usePatientDemo } from "@/components/patient/patient-demo-provider";
-import { formatPatientDate, type PatientDoctor } from "@/lib/mock/patient";
-import { appContent } from "@/lib/mock/content";
-import { cn } from "@/lib/utils";
+import { formatPatientDate, formatSession } from "@/lib/patient-appointments";
+import type {
+  BookAppointmentResult,
+  OpenDateEntry,
+  OpenDatesResponse,
+  PatientDoctorOption,
+} from "@/lib/schemas/booking";
 
-export function AppointmentBooking({ doctor }: { doctor: PatientDoctor }) {
-  const { appointments, bookAppointment } = usePatientDemo();
+export function AppointmentBooking({ doctor }: { doctor: PatientDoctorOption }) {
   const router = useRouter();
-  const [date, setDate] = useState(doctor.dates[0]);
-  const [time, setTime] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+  const [dates, setDates] = useState<OpenDateEntry[]>([]);
+  const [date, setDate] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [error, setError] = useState("");
-  const reserved = (slot: string) =>
-    appointments.some(
-      (item) =>
-        item.status === "Confirmed" &&
-        item.doctorId === doctor.id &&
-        item.date === date &&
-        item.time === slot
-    );
-  const dates = doctor.dates.map((value) => ({ value, label: formatPatientDate(value) }));
-  function confirm() {
-    if (!time || reserved(time)) {
-      setError("This slot is no longer available. Choose another time.");
-      return;
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const submitting = useRef(false);
+  const chosen = dates.find((entry) => entry.date === date);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function load() {
+      try {
+        const response = await fetch(
+          `/api/appointments/open-dates?doctorId=${encodeURIComponent(doctor.id)}`,
+          { cache: "no-store", signal: controller.signal }
+        );
+        const data: OpenDatesResponse & { error?: string } = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Unable to load dates.");
+        setDates(data.dates);
+        setDate((selected) =>
+          data.dates.some((entry) => entry.date === selected)
+            ? selected
+            : (data.dates[0]?.date ?? "")
+        );
+        setLoadError("");
+      } catch (cause) {
+        if (!controller.signal.aborted)
+          setLoadError(cause instanceof Error ? cause.message : "Unable to load dates.");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
     }
-    const id = bookAppointment({ doctorId: doctor.id, date, time });
-    if (!id) {
-      setError("This appointment is already booked.");
-      return;
-    }
-    setOpen(false);
-    router.push("/patient/appointments/confirmed");
+    void load();
+    return () => controller.abort();
+  }, [doctor.id, revision]);
+
+  function refreshDates() {
+    setLoading(true);
+    setLoadError("");
+    setRevision((value) => value + 1);
   }
+
+  async function confirm() {
+    if (!chosen || submitting.current) return;
+    submitting.current = true;
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch("/api/patient/appointments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ doctorId: doctor.id, date: chosen.date }),
+      });
+      const result: BookAppointmentResult = await response.json();
+      if (!response.ok || !result.success || !result.appointment) {
+        setError(result.error ?? "Unable to book. Please try again.");
+        refreshDates();
+        return;
+      }
+      setOpen(false);
+      router.push(
+        `/patient/appointments/confirmed?id=${encodeURIComponent(result.appointment.id)}`
+      );
+      router.refresh();
+    } catch {
+      setError(
+        "The booking result could not be confirmed. Check My Appointments before trying again."
+      );
+    } finally {
+      submitting.current = false;
+      setPending(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div>
         <h2 className="font-semibold">Book appointment</h2>
-        <p className="mt-2 text-sm font-medium">{doctor.name}</p>
-        <p className="text-muted-foreground text-sm">{doctor.specialty}</p>
+        <p className="mt-2 font-medium">{doctor.name}</p>
+        <p className="text-muted-foreground text-sm">
+          {doctor.specialtyName ?? "General clinic"}
+        </p>
       </div>
-      <div className="space-y-2">
-        <label htmlFor="appointment-date" className="text-sm font-semibold">
-          1. Choose date
-        </label>
-        <Select
-          items={dates}
-          value={date}
-          onValueChange={(value) => {
-            if (value) {
-              setDate(value);
-              setTime(null);
-              setError("");
-            }
-          }}
-        >
-          <SelectTrigger id="appointment-date">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="max-w-[calc(100vw-2rem)]">
-            {dates.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <fieldset>
-        <legend className="text-sm font-semibold">2. Choose time</legend>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {doctor.times.map((slot) => (
+      {loading ? (
+        <p role="status">Loading available dates...</p>
+      ) : loadError ? (
+        <p role="alert" className="text-destructive text-sm">
+          {loadError}
+        </p>
+      ) : (
+        <fieldset className="space-y-3">
+          <legend className="mb-2 text-sm font-semibold">Choose a clinic date</legend>
+          {dates.map((entry) => (
             <Button
-              key={slot}
-              variant={time === slot ? "default" : "outline"}
-              disabled={reserved(slot)}
-              aria-pressed={time === slot}
-              className={cn(
-                "h-auto min-h-11 flex-col gap-0.5 py-2 text-xs",
-                reserved(slot) && "line-through"
-              )}
+              key={entry.date}
+              variant={date === entry.date ? "default" : "outline"}
+              className="h-auto w-full flex-col items-start gap-1 p-3 whitespace-normal"
+              aria-pressed={date === entry.date}
               onClick={() => {
-                setTime(slot);
+                setDate(entry.date);
                 setError("");
               }}
             >
-              {slot}
-              {reserved(slot) && <span className="text-xs">Booked</span>}
+              <span>{formatPatientDate(entry.date)}</span>
+              <span className="text-xs">
+                {formatSession(entry.startTime, entry.endTime)} · {entry.availableCount}{" "}
+                places left
+              </span>
             </Button>
           ))}
-        </div>
-      </fieldset>
-      <FactCard
-        label="Booking summary"
-        value={formatPatientDate(date) + " / " + (time ?? "Choose a time")}
-      />
+          {!dates.length && (
+            <p className="text-muted-foreground text-sm">
+              No sessions are open in the next 14 days. Try another doctor or contact
+              reception.
+            </p>
+          )}
+        </fieldset>
+      )}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={refreshDates}
+        disabled={loading || pending}
+      >
+        Refresh dates
+      </Button>
       <p className="text-muted-foreground text-sm">
-        {appContent.hospital.name} &middot; {doctor.room}
+        Appointments are ordered by number within the clinic session. A number does not
+        reserve an exact consultation time.
       </p>
+      {doctor.consultationFee && (
+        <FactCard label="Consultation fee (LKR)" value={doctor.consultationFee} />
+      )}
+      {error && (
+        <p role="alert" className="text-destructive text-sm">
+          {error}
+        </p>
+      )}
+      <Button
+        className="w-full"
+        disabled={!chosen || loading || !!loadError || pending}
+        onClick={() => setOpen(true)}
+      >
+        Review appointment
+      </Button>
       <Dialog
         open={open}
         onOpenChange={(value) => {
-          setOpen(value);
-          setError("");
+          if (!pending) setOpen(value);
         }}
       >
-        <DialogTrigger render={<Button className="w-full" disabled={!time} />}>
-          Confirm appointment
-        </DialogTrigger>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Confirm your appointment</DialogTitle>
+            <DialogTitle>Confirm appointment</DialogTitle>
             <DialogDescription>
-              Review your booking. Reception issues your queue token after you arrive and
-              check in.
+              Review the clinic date. Your appointment number is assigned when the booking
+              is saved.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <FactCard label="Doctor" value={doctor.name} />
-            <FactCard
-              label="Date and time"
-              value={formatPatientDate(date) + " / " + (time ?? "")}
-            />
-            <p className="text-muted-foreground text-sm">
-              If applicable, fees are collected at the hospital.
-            </p>
-          </div>
+          <FactCard label="Doctor" value={doctor.name} />
+          {chosen && (
+            <>
+              <FactCard label="Date" value={formatPatientDate(chosen.date)} />
+              <FactCard
+                label="Clinic session"
+                value={formatSession(chosen.startTime, chosen.endTime)}
+              />
+            </>
+          )}
           {error && (
             <p role="alert" className="text-destructive text-sm">
               {error}
             </p>
           )}
           <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>Go back</DialogClose>
-            <Button onClick={confirm}>Book appointment</Button>
+            <Button variant="outline" disabled={pending} onClick={() => setOpen(false)}>
+              Go back
+            </Button>
+            <Button
+              disabled={pending || loading || !chosen || !!loadError}
+              onClick={confirm}
+            >
+              {pending ? "Booking..." : "Book appointment"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

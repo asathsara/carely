@@ -16,8 +16,8 @@ export function EmptyAppointments({ history = false }: { history?: boolean }) {
       </h2>
       <p className="text-muted-foreground max-w-lg text-sm">
         {history
-          ? "Completed and cancelled appointments will appear here."
-          : "You don't have any scheduled appointments. Find a doctor and choose an available time."}
+          ? "Past, completed, and cancelled appointments will appear here."
+          : "You don't have any scheduled appointments. Find a doctor and choose an available clinic date."}
       </p>
       <Link className={buttonVariants({})} href="/patient/book">
         Book an appointment

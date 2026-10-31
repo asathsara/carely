@@ -5,11 +5,27 @@ export const bookAppointmentSchema = z.object({
   doctorId: z.uuid("Invalid doctor ID"),
   date: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Appointment date must be in YYYY-MM-DD format"),
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Appointment date must be in YYYY-MM-DD format")
+    .refine((value) => {
+      const parsed = new Date(`${value}T00:00:00.000Z`);
+      return (
+        value >= "0001-01-01" &&
+        Number.isFinite(parsed.getTime()) &&
+        parsed.toISOString().slice(0, 10) === value
+      );
+    }, "Appointment date must be a real calendar date"),
   patientId: z.uuid("Invalid patient ID"),
 });
 
 export type BookAppointmentInput = z.infer<typeof bookAppointmentSchema>;
+
+export const openDatesQuerySchema = bookAppointmentSchema.pick({ doctorId: true });
+export const patientBookingSchema = bookAppointmentSchema
+  .omit({ patientId: true })
+  .strict();
+export const cancelAppointmentSchema = z.object({
+  appointmentId: z.uuid("Invalid appointment ID"),
+});
 
 export interface BookAppointmentActor {
   userId: string;
@@ -29,6 +45,8 @@ export interface BookAppointmentResult {
   appointmentNo?: number;
   error?: string;
   code?: string;
+  /** HTTP status for expected failures; the service itself does not send a response. */
+  statusCode?: number;
 }
 
 export interface OpenDateEntry {
@@ -51,4 +69,26 @@ export interface OpenDatesResponse {
 export interface CancelAppointmentParams {
   appointmentId: string;
   actor: BookAppointmentActor;
+}
+
+export interface PatientDoctorOption {
+  id: string;
+  name: string;
+  specialtyName: string | null;
+  consultationFee: string | null;
+}
+
+export interface PatientAppointmentView {
+  id: string;
+  doctorId: string;
+  doctorName: string;
+  specialtyName: string | null;
+  date: string;
+  appointmentNo: number;
+  status: string;
+  feeAmount: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  isUpcoming: boolean;
+  canCancel: boolean;
 }

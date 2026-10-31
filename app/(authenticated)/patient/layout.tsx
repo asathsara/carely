@@ -1,9 +1,10 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
-import { PatientDemoProvider } from "@/components/patient/patient-demo-provider";
 import { AppShell } from "@/components/workspace/app-shell";
 import { auth } from "@/lib/auth";
+import { getDefaultRouteForRole } from "@/lib/config/navigation";
+import { getOrCreatePatientForUser } from "@/lib/services/patient";
 
 export const instant = false;
 
@@ -24,22 +25,23 @@ export default async function PatientLayout({ children }: { children: ReactNode 
     headers: await headers(),
   });
 
-  if (!session?.user) {
+  if (!session?.user || session.user.banned) {
     redirect("/login?callbackUrl=/patient");
   }
 
+  if (session.user.role !== "patient")
+    redirect(getDefaultRouteForRole(session.user.role));
+  await getOrCreatePatientForUser(session.user.id);
   return (
-    <PatientDemoProvider>
-      <AppShell
-        role="patient"
-        user={{
-          name: session.user.name,
-          detail: "Patient",
-          initials: getInitials(session.user.name),
-        }}
-      >
-        {children}
-      </AppShell>
-    </PatientDemoProvider>
+    <AppShell
+      role="patient"
+      user={{
+        name: session.user.name,
+        detail: "Patient",
+        initials: getInitials(session.user.name),
+      }}
+    >
+      {children}
+    </AppShell>
   );
 }

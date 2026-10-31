@@ -388,6 +388,7 @@ _Must be committed to `dev` first before branching to prevent schema or migratio
 
 ### 8.3 Track 2: Doctor Availability & Token Booking Engine (Teammate 2)
 
+- **Progress (5 of 5 responsibilities implemented)**: The recurring availability API, doctor form, transactional booking service, open-date discovery API, and patient booking/cancellation/appointment history are implemented. See [Doctor availability](doctor-availability.md), [Transactional appointment booking](booking-service.md), [Open appointment dates](open-dates.md), and [Patient UI](patient-ui.md) for contracts, verification, and the remaining queue/check-in integration.
 - **Branch**: `feat/doctor-booking`
 - **Stories**: SCRUM-163, SCRUM-138
 - **Responsibilities**:

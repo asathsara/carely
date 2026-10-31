@@ -1,50 +1,122 @@
 # Patient UI
 
-The patient screens follow the updated Carely Figma designs, including the guided doctor finder, queue before reception check-in, active queue, and Pending/History prescriptions. Layouts start with a single column and expand where there is enough space. Shared shadcn Select and Dialog controls handle selection, confirmation, cancellation, appointment details, and password editing.
+Task 8.3 responsibility 5 connects patient booking, confirmation, appointment
+history, and cancellation to PostgreSQL. The patient demo booking provider and
+the frozen doctor/appointment fixtures have been removed.
 
-## Current structure
+## Data flow
 
-```text
-app/(authenticated)/patient/
-  layout.tsx                    Shared shell and temporary booking state
-  page.tsx                      Dashboard composition
-  book/page.tsx                 Finder and booking layout
-  appointments/page.tsx         Upcoming/history list and visit guidance
-  appointments/confirmed/page.tsx
-  appointments/empty/page.tsx   Standalone empty-state design preview
-  queue/page.tsx                Queue status and reception guidance
-  prescriptions/page.tsx        Pending/history prescription layout
-  profile/page.tsx              Profile and account-security layout
-components/patient/
-  doctor-finder.tsx             Guided reasons and doctor search
-  appointment-booking.tsx       Date/time selection and booking review
-  appointment-card.tsx          Details and cancellation dialogs
-  empty-appointments.tsx        Shared empty state
-  queue-status.tsx              Before-check-in and checked-in states
-  prescription-medicine.tsx     Read-only medicine item
-  patient-profile.tsx           Personal-details form
-  patient-password-dialog.tsx   Password form and validation
-  patient-shared.tsx            Presentational patient primitives
-  patient-demo-provider.tsx     Temporary cross-page booking store
-lib/mock/patient.ts             Frozen doctors, availability, and bookings
+- The patient layout checks the session, rejects banned users, redirects other
+  roles to their workspace, and provisions the linked patient profile idempotently.
+- `/patient/book` reads active doctor accounts and specialties on the server.
+  Patients can search and filter this real directory. Guided reason matching is
+  deferred until persisted reason-to-specialty mappings exist.
+- Selecting a doctor loads the [open-dates API](open-dates.md). The booking widget
+  shows clinic sessions, remaining capacity, and the consultation fee. It keeps
+  only draft selections, loading state, and dialogs in the browser.
+- Booking submits only `doctorId` and `date`. The server derives patient ID and
+  actor from the authenticated session, then calls the transactional booking service.
+- The confirmation URL includes the saved appointment UUID:
+  `/patient/appointments/confirmed?id=...`. The server reads that patient-owned
+  record, so refreshes and direct links work. Missing, malformed, and foreign
+  references produce a not-found page without revealing another patient's details.
+- `/patient/appointments` loads the authenticated user's appointments on the server
+  and passes serializable records to the interactive list. Upcoming and history
+  filters include the saved date, appointment number, doctor, status and fee.
+  Past booked visits appear in history without changing their stored status.
+- Cancellation refreshes the server-rendered data. The dashboard and queue guidance
+  read the same saved appointments rather than keeping a second booking store.
+- Page failures show a generic retry view; API failures do not expose database details.
+
+The appointment number determines order within a clinic session, not an exact
+consultation time. Current clinic hours come from the recurring availability rule;
+the schema does not snapshot historical session times. The appointment date,
+number, status and fee are saved on the booking itself.
+
+## API contracts
+
+### `GET /api/patient/appointments`
+
+Patient-only, authenticated, uncached. Returns `{ appointments: [...] }` scoped in
+SQL to the session user's linked profile. Query parameters cannot choose a different
+patient. Each record includes `isUpcoming` and `canCancel`, computed using Colombo
+date/time and current session hours. Current database role and banned status are
+checked before reading records.
+
+### `POST /api/patient/appointments`
+
+Patient-only. Accepts exactly:
+
+```json
+{
+  "doctorId": "11111111-1111-4111-8111-111111111111",
+  "date": "2026-11-07"
+}
 ```
 
-Pages retain layout composition; interactive forms and focused widgets live in the root components directory. No route-local component folders, data-access layer, Server Actions, API handlers, or new fetching architecture are introduced by this UI update. Client pages use state and event handlers; existing static pages and the layout remain Server Components. The queue widget reads preview query parameters inside Suspense. Client pages do not export server-only route configuration.
+Unknown fields (including `patientId`, `actor`, `appointmentNo` and `source`) are
+rejected. Malformed JSON, invalid UUIDs and impossible dates return `400` before
+provisioning or booking. Successful creation returns `201` with the existing
+`BookAppointmentResult`, including the saved appointment and appointment number.
+Expected booking failures preserve their service status, including `409` for full
+sessions. The widget refreshes dates after a rejected booking and tells the patient
+to check My Appointments before retrying when the network result is uncertain.
 
-## Demo behavior and limits
+### `POST /api/appointments/:id/cancel`
 
-- Booking creates a reference and connects confirmation, appointments, dashboard counts, and queue appointment information during client navigation. Cancelled bookings move to Past. The same patient's already reserved slot cannot be booked again.
-- The default queue state is not checked in. Patients cannot issue their own tokens. Use `/patient/queue?preview=checked-in` to review the active-queue Figma state; it is explicitly labelled as a design preview and does not alter booking state.
-- Refresh now and the 30-second timer refresh the view timestamp only. They do not fetch reception updates, move queue positions, or estimate real waiting time. The timer is cleaned up when the widget unmounts.
-- Fixtures use the frozen October 2026 design scenario. Available slots are sample data, not a live schedule. Reason matching reuses the initial admin reason/doctor fixtures; unsaved admin prototype edits are not connected across roles. There is no symptom analysis or diagnosis.
-- Prescriptions are read-only doctor-issued examples. Pending is populated; History shows its empty state until real dispensing records exist. There are no refill requests or medication reminders. Printing uses the browser print dialog.
-- Profile changes last while the profile page is mounted. Cancel restores the most recently saved form. Changing the demo email shows verification pending. Password editing validates fields and clears them on close; it never changes an account password. No email is sent, and the sign-in link is not a server session-revocation operation.
-- Booking state resets on reload or when leaving the patient layout. It is separate from the receptionist prototype and is not persisted in browser storage or a database.
+Patients can cancel only their own appointments. Receptionists and admins can cancel
+on behalf of any patient, including walk-ins. Other roles receive `403`.
+The appointment ID comes from the route and the actor comes from the session;
+request JSON cannot substitute either.
 
-## Planned integration and provider removal
+The service rechecks the actor's database role and banned status, locks the relevant
+availability row and then the appointment row, and changes only `status` and
+`updated_at`. This lock order matches booking. Repeated cancellation is idempotent.
+Cancelled numbers are never reused, and capacity becomes available again.
 
-`PatientDemoProvider` exists only because several prototype pages need to agree about one booking. It is not an authentication provider, a production cache, or the future source of truth. Remove it, its hook, and the patient fixture imports when server-owned patient bookings are integrated; do not mirror fetched bookings back into this provider.
+Missing or foreign appointments return `404`. Malformed IDs return `400`. Only
+`booked` appointments can transition to `cancelled`; completed and any in-progress
+status are rejected with `409`, as are past dates and today's session at/after its
+end time. Future bookings can still be cancelled if the weekly rule was removed.
 
-At that point, page loaders should read the authenticated patient's records on the server and pass serializable data into these widgets. Keep only drafts, open dialogs, and filters in local client state. Booking and cancellation must use validated, authorized server mutations, enforce slot availability atomically, and refresh affected page data. The server must prevent cancellation after reception check-in. Confirmation should load a patient-owned booking by reference rather than the temporary latest-booking ID. Profile/password changes should use the account service, and logout must revoke the authenticated session.
+All API responses send `Cache-Control: no-store`. Mutations reject a supplied Origin
+header that does not match the request origin. They still require an authenticated
+session when the header is absent, such as for a server client.
 
-Replace queue fixtures and timestamp-only refresh with an authenticated polling hook using native fetch. Reception remains the owner of check-in/token creation. Return authoritative queue status and handle loading, stale data, errors, completion, and missed turns. Remove the checked-in preview URL before enabling real patient data. Fetch doctor-issued prescriptions and their actual dispensing history with patient ownership checks; never derive dispensing status from browser-only state.
+## Remaining integrations
+
+Queue/check-in records and live polling are not implemented by this track. The old
+checked-in preview and timestamp-only refresh have been removed from the patient
+queue screen. It now shows the patient's real next appointment and reception
+guidance, without claiming a live position or check-in status. The future check-in
+implementation must extend the cancellation guard using authoritative visit/queue
+state (or transition the appointment out of `booked`) before enabling check-in.
+
+Profile editing, password editing, and prescriptions remain separate prototype
+flows. Their remaining example data stays in `lib/mock/patient.ts`; booking does
+not read it. Real profile/account updates, session revocation, prescriptions and
+dispensing history require their respective integrations.
+
+## Verification
+
+Unit tests cover API authentication, role and ban checks, session-derived ownership,
+strict input validation, cross-origin mutation rejection, cache headers, service
+status codes, and generic server errors. PostgreSQL tests cover owned appointment
+lists and confirmations, history classification, active-doctor queries, concurrent
+profile provisioning, cancellation ownership and permissions, idempotency,
+session/past-date rejection, concurrent cancellation versus booking, reopened
+capacity, and token preservation.
+
+Run `pnpm test` for unit tests, and use the isolated database setup in
+[Transactional appointment booking](booking-service.md#verification) for database tests.
+No migration is required.
+
+For a manual browser check:
+
+1. Activate a doctor and save a clinic session within the next 14 days.
+2. Sign in as a patient, select that doctor, choose a date, and confirm the booking.
+3. Check the saved number and reference. Reload the confirmation URL.
+4. Open My Appointments and the dashboard; confirm the saved appointment appears.
+5. Cancel it and reload; confirm it appears in history and capacity has reopened.
+6. Book again and confirm the new number increases rather than reusing the cancelled one.
+7. Sign in as another patient; verify the original reference cannot be viewed or cancelled.
