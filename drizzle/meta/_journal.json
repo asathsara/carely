@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1792666552151,
+      "tag": "0000_striped_zemo",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792730864606,
+      "tag": "0001_erd_scheduling_channeling",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793381715635,
+      "tag": "0002_add_claimed_at_to_user",
+      "breakpoints": true
+    }
+  ]
+}

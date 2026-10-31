@@ -5,13 +5,22 @@ import { Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { mockCredentials } from "@/lib/mock/auth";
-import { appContent } from "@/lib/mock/content";
+import { authClient } from "@/lib/auth-client";
+import { getDefaultRouteForRole } from "@/lib/config/navigation";
+import { getSafeRedirectUrl } from "@/lib/safe-redirect";
 import type { LoginInput } from "@/lib/schemas/auth";
 import { loginSchema } from "@/lib/schemas/auth";
+
+function getRedirectDestination(fallback: string): string {
+  if (typeof window === "undefined") return fallback;
+  const raw = new URLSearchParams(window.location.search).get("callbackUrl");
+  const safe = getSafeRedirectUrl(raw, window.location.origin, fallback);
+  return safe === "/patient/dashboard" ? "/patient" : safe;
+}
 
 function LoginForm({ defaultValues }: { defaultValues: LoginInput }) {
   const router = useRouter();
@@ -19,6 +28,7 @@ function LoginForm({ defaultValues }: { defaultValues: LoginInput }) {
   const [showPassword, setShowPassword] = useState(false);
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<LoginInput>({
@@ -28,40 +38,30 @@ function LoginForm({ defaultValues }: { defaultValues: LoginInput }) {
 
   const onSubmit = async (values: LoginInput) => {
     setLoginError("");
-    console.log(`${appContent.brand.name} mock sign in`, values);
 
-    if (
-      values.email === mockCredentials.patient.email &&
-      values.password === mockCredentials.patient.password
-    ) {
-      router.push("/patient");
-    } else if (
-      values.email === mockCredentials.doctor.email &&
-      values.password === mockCredentials.doctor.password
-    ) {
-      router.push("/doctor");
-    } else if (
-      values.email === mockCredentials.nurse.email &&
-      values.password === mockCredentials.nurse.password
-    ) {
-      router.push("/nurse/intake");
-    } else if (
-      values.email === mockCredentials.receptionist.email &&
-      values.password === mockCredentials.receptionist.password
-    ) {
-      router.push("/reception/register");
-    } else if (
-      values.email === mockCredentials.pharmacist.email &&
-      values.password === mockCredentials.pharmacist.password
-    ) {
-      router.push("/pharmacy");
-    } else if (
-      values.email === mockCredentials.admin.email &&
-      values.password === mockCredentials.admin.password
-    ) {
-      router.push("/admin");
-    } else {
-      setLoginError("Email or password does not match a mock profile.");
+    // Authentic staff & patient sign-in via Better Auth
+    try {
+      const { data, error } = await authClient.signIn.email({
+        email: values.email,
+        password: values.password,
+        rememberMe: values.rememberMe,
+      });
+
+      if (error) {
+        setLoginError(error.message || "Invalid email or password.");
+        return;
+      }
+
+      if (data) {
+        const userRole = (data.user as { role?: string })?.role;
+        const defaultDestination = getDefaultRouteForRole(userRole);
+        const destination = getRedirectDestination(defaultDestination);
+        router.push(destination);
+        router.refresh();
+        return;
+      }
+    } catch {
+      setLoginError("An unexpected error occurred during sign in. Please try again.");
     }
   };
 
@@ -102,10 +102,19 @@ function LoginForm({ defaultValues }: { defaultValues: LoginInput }) {
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm">
         <label className="text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-2 select-none">
-          <input
-            type="checkbox"
-            className="border-border accent-primary size-4 rounded"
-            {...register("rememberMe")}
+          <Controller
+            name="rememberMe"
+            control={control}
+            render={({ field }) => (
+              <Checkbox
+                id="rememberMe"
+                name={field.name}
+                checked={Boolean(field.value)}
+                onCheckedChange={field.onChange}
+                onBlur={field.onBlur}
+                inputRef={field.ref}
+              />
+            )}
           />
           <span>Keep me signed in</span>
         </label>

@@ -29,9 +29,6 @@ const medications = [
   { name: "Atorvastatin 20 mg", schedule: "Night" },
 ];
 
-const weekdays = ["Mon 21", "Tue 22", "Wed 23", "Thu 24", "Fri 25"];
-const slots = ["09:00 – 09:30", "10:00 – 10:30", "11:00 – 11:30", "14:00 – 14:30"];
-
 function DoctorPatients() {
   return (
     <>
@@ -128,60 +125,6 @@ function DoctorNotes() {
   );
 }
 
-function DoctorAvailability() {
-  return (
-    <>
-      <PageTitle
-        eyebrow="Clinical workspace"
-        title="Availability"
-        description="Set weekly appointment slots and publish availability."
-      />
-      <Card className="p-4 sm:p-5">
-        <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">Weekly schedule</h2>
-            <p className="text-sm font-medium">Week of 21–25 September</p>
-          </div>
-          <Button className="self-start sm:self-auto">Publish availability</Button>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          {weekdays.map((day) => (
-            <section key={day}>
-              <h3 className="mb-2 text-sm font-medium">{day}</h3>
-              <div className="bg-carely-surface grid grid-cols-2 gap-2 rounded-lg border p-3 lg:grid-cols-1 lg:gap-3">
-                {slots.map((slot) => {
-                  const blocked = day === "Wed 23" && slot.startsWith("11:00");
-                  return (
-                    <div
-                      key={slot}
-                      className={
-                        blocked
-                          ? "rounded-md border bg-amber-50 p-3"
-                          : "bg-card rounded-md border p-3"
-                      }
-                    >
-                      <p className="text-xs font-semibold">{slot}</p>
-                      <p
-                        className={
-                          blocked
-                            ? "mt-2 text-xs text-amber-700"
-                            : "text-primary mt-2 text-xs"
-                        }
-                      >
-                        {blocked ? "Blocked" : "4 slots"}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
-        </div>
-      </Card>
-    </>
-  );
-}
-
 function DoctorDashboard() {
   return (
     <>
@@ -216,4 +159,4 @@ function DoctorDashboard() {
   );
 }
 
-export { DoctorAvailability, DoctorDashboard, DoctorNotes, DoctorPatients };
+export { DoctorDashboard, DoctorNotes, DoctorPatients };
