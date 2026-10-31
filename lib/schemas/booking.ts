@@ -5,7 +5,15 @@ export const bookAppointmentSchema = z.object({
   doctorId: z.uuid("Invalid doctor ID"),
   date: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Appointment date must be in YYYY-MM-DD format"),
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Appointment date must be in YYYY-MM-DD format")
+    .refine((value) => {
+      const parsed = new Date(`${value}T00:00:00.000Z`);
+      return (
+        value >= "0001-01-01" &&
+        Number.isFinite(parsed.getTime()) &&
+        parsed.toISOString().slice(0, 10) === value
+      );
+    }, "Appointment date must be a real calendar date"),
   patientId: z.uuid("Invalid patient ID"),
 });
 
@@ -29,6 +37,8 @@ export interface BookAppointmentResult {
   appointmentNo?: number;
   error?: string;
   code?: string;
+  /** HTTP status for expected failures; the service itself does not send a response. */
+  statusCode?: number;
 }
 
 export interface OpenDateEntry {
