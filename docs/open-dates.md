@@ -69,4 +69,5 @@ between doctors/dates, metadata, and inactive or missing doctors.
 Run `pnpm test` for unit tests. The database suite uses the opt-in isolated database
 setup documented in [Transactional appointment booking](booking-service.md#verification).
 
-Patient UI integration, appointment listing, and cancellation remain responsibility 5.
+[Patient UI integration, appointment listing, and cancellation](patient-ui.md) are
+implemented as responsibility 5.

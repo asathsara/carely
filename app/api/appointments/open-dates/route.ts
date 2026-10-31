@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { unstable_rethrow } from "next/navigation";
 import { AuthError, requireRole } from "@/lib/auth-guard";
 import { openDatesQuerySchema } from "@/lib/schemas/booking";
 import { BookingServiceError, getOpenDatesForDoctor } from "@/lib/services/booking";
@@ -27,6 +28,7 @@ export async function GET(request: Request) {
     const result = await getOpenDatesForDoctor(input.data.doctorId);
     return NextResponse.json(result, { headers });
   } catch (error) {
+    unstable_rethrow(error);
     if (error instanceof AuthError || error instanceof BookingServiceError) {
       return NextResponse.json(
         {

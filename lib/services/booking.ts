@@ -1,5 +1,6 @@
 import { and, eq, gte, lte, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { colomboNow } from "@/lib/clinic-time";
 import { appointment } from "@/lib/db/schema/appointment";
 import { user } from "@/lib/db/schema/auth";
 import { doctor } from "@/lib/db/schema/doctor";
@@ -9,6 +10,7 @@ import { specialty } from "@/lib/db/schema/specialty";
 import {
   bookAppointmentSchema,
   openDatesQuerySchema,
+  cancelAppointmentSchema,
   type BookAppointmentParams,
   type BookAppointmentResult,
   type CancelAppointmentParams,
@@ -24,27 +26,6 @@ export class BookingServiceError extends Error {
     super(message);
     this.name = "BookingServiceError";
   }
-}
-
-const colomboClock = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Colombo",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hourCycle: "h23",
-});
-
-function colomboNow() {
-  const parts = Object.fromEntries(
-    colomboClock.formatToParts(new Date()).map(({ type, value }) => [type, value])
-  );
-  return {
-    date: `${parts.year}-${parts.month}-${parts.day}`,
-    time: `${parts.hour}:${parts.minute}:${parts.second}`,
-  };
 }
 
 function failure(code: string, error: string, statusCode = 400): BookAppointmentResult {
@@ -299,11 +280,82 @@ export async function getOpenDatesForDoctor(
   };
 }
 
-/**
- * Step 0 Contract Stub for cancelling an appointment.
- */
 export async function cancelAppointment(
-  _params: CancelAppointmentParams
-): Promise<{ success: boolean; error?: string }> {
-  throw new Error("cancelAppointment is not implemented yet (scheduled for Track 2).");
+  params: CancelAppointmentParams
+): Promise<{ success: boolean; error?: string; code?: string; statusCode?: number }> {
+  if (!cancelAppointmentSchema.safeParse(params).success) {
+    return failure("INVALID_INPUT", "Invalid appointment ID");
+  }
+  const { actor, appointmentId } = params;
+  if (!actor?.userId) return failure("UNAUTHORIZED", "A signed-in user is required", 401);
+  if (!["patient", "receptionist", "admin"].includes(actor.role)) {
+    return failure("FORBIDDEN", "You cannot cancel appointments", 403);
+  }
+
+  return db.transaction(
+    async (tx) => {
+      const [caller] = await tx
+        .select({ role: user.role, banned: user.banned })
+        .from(user)
+        .where(eq(user.id, actor.userId))
+        .limit(1);
+      if (!caller || caller.banned || caller.role !== actor.role) {
+        return failure("FORBIDDEN", "Your account cannot cancel appointments", 403);
+      }
+      const [target] = await tx
+        .select({
+          doctorId: appointment.doctorId,
+          date: appointment.appointmentDate,
+          patientUserId: patient.userId,
+        })
+        .from(appointment)
+        .innerJoin(patient, eq(appointment.patientId, patient.id))
+        .where(eq(appointment.id, appointmentId))
+        .limit(1);
+      if (
+        !target ||
+        (actor.role === "patient" && target.patientUserId !== actor.userId)
+      ) {
+        return failure("APPOINTMENT_NOT_FOUND", "Appointment not found", 404);
+      }
+
+      // Match booking's lock order: availability first, then the appointment row.
+      const weekday = new Date(`${target.date}T00:00:00Z`).getUTCDay();
+      const [session] = await tx
+        .select()
+        .from(doctorAvailability)
+        .where(
+          and(
+            eq(doctorAvailability.doctorId, target.doctorId),
+            eq(doctorAvailability.dayOfWeek, weekday)
+          )
+        )
+        .for("update");
+      const [locked] = await tx
+        .select()
+        .from(appointment)
+        .where(eq(appointment.id, appointmentId))
+        .for("update");
+      if (!locked) return failure("APPOINTMENT_NOT_FOUND", "Appointment not found", 404);
+      if (locked.status === "cancelled") return { success: true };
+      const now = colomboNow();
+      if (
+        locked.status !== "booked" ||
+        target.date < now.date ||
+        (target.date === now.date && session && now.time >= session.endTime)
+      ) {
+        return failure(
+          "APPOINTMENT_CLOSED",
+          "This appointment can no longer be cancelled. Please contact reception.",
+          409
+        );
+      }
+      await tx
+        .update(appointment)
+        .set({ status: "cancelled", updatedAt: new Date() })
+        .where(eq(appointment.id, appointmentId));
+      return { success: true };
+    },
+    { isolationLevel: "read committed" }
+  );
 }

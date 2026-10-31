@@ -43,6 +43,10 @@ describe.skipIf(!testConfig.adminUrl)("Transactional booking (PostgreSQL)", () =
   let database: ReturnType<typeof drizzle>;
   let bookAppointment: typeof import("@/lib/services/booking").bookAppointment;
   let getOpenDatesForDoctor: typeof import("@/lib/services/booking").getOpenDatesForDoctor;
+  let cancelAppointment: typeof import("@/lib/services/booking").cancelAppointment;
+  let getPatientAppointments: typeof import("@/lib/services/patient-booking").getPatientAppointments;
+  let getPatientDoctors: typeof import("@/lib/services/patient-booking").getPatientDoctors;
+  let getOrCreatePatientForUser: typeof import("@/lib/services/patient").getOrCreatePatientForUser;
   let input: BookAppointmentParams;
   let doctorUserId: string;
   let otherPatientId: string;
@@ -54,7 +58,11 @@ describe.skipIf(!testConfig.adminUrl)("Transactional booking (PostgreSQL)", () =
     connection = databaseModule.conn;
     database = databaseModule.db;
     await migrate(database, { migrationsFolder: "./drizzle" });
-    ({ bookAppointment, getOpenDatesForDoctor } = await import("@/lib/services/booking"));
+    ({ bookAppointment, getOpenDatesForDoctor, cancelAppointment } =
+      await import("@/lib/services/booking"));
+    ({ getPatientAppointments, getPatientDoctors } =
+      await import("@/lib/services/patient-booking"));
+    ({ getOrCreatePatientForUser } = await import("@/lib/services/patient"));
   }, 30_000);
 
   afterAll(async () => {
@@ -127,6 +135,265 @@ describe.skipIf(!testConfig.adminUrl)("Transactional booking (PostgreSQL)", () =
     await database.update(doctorAvailability).set({ maxPatients });
   }
 
+  describe("Patient appointments and cancellation", () => {
+    it("loads saved bookings and an owned confirmation by reference", async () => {
+      const booked = await bookAppointment(input);
+      expect(await getPatientAppointments(input.actor.userId)).toMatchObject([
+        {
+          id: booked.appointment!.id,
+          doctorName: "Doctor",
+          date: input.date,
+          appointmentNo: 1,
+          status: "booked",
+          isUpcoming: true,
+          canCancel: true,
+          feeAmount: "1500.00",
+        },
+      ]);
+      expect(
+        await getPatientAppointments(input.actor.userId, booked.appointment!.id)
+      ).toHaveLength(1);
+      expect(await getPatientAppointments(input.actor.userId, randomUUID())).toEqual([]);
+    });
+
+    it("never lists or confirms another patient's booking", async () => {
+      const own = await bookAppointment(input);
+      const [foreign] = await database
+        .insert(appointment)
+        .values({
+          doctorId: input.doctorId,
+          patientId: otherPatientId,
+          appointmentDate: input.date,
+          appointmentNo: 2,
+        })
+        .returning();
+      expect(
+        (await getPatientAppointments(input.actor.userId)).map((row) => row.id)
+      ).toEqual([own.appointment!.id]);
+      expect(await getPatientAppointments(input.actor.userId, foreign.id)).toEqual([]);
+      expect(
+        await cancelAppointment({ appointmentId: foreign.id, actor: input.actor })
+      ).toMatchObject({ statusCode: 404 });
+      expect(
+        (
+          await database.select().from(appointment).where(eq(appointment.id, foreign.id))
+        )[0].status
+      ).toBe("booked");
+    });
+
+    it("retains past, cancelled and completed visits in history in date order", async () => {
+      await database.insert(appointment).values([
+        {
+          doctorId: input.doctorId,
+          patientId: input.patientId,
+          appointmentDate: "2026-11-07",
+          appointmentNo: 1,
+        },
+        {
+          doctorId: input.doctorId,
+          patientId: input.patientId,
+          appointmentDate: "2026-10-24",
+          appointmentNo: 1,
+        },
+        {
+          doctorId: input.doctorId,
+          patientId: input.patientId,
+          appointmentDate: input.date,
+          appointmentNo: 1,
+          status: "completed",
+        },
+        {
+          doctorId: input.doctorId,
+          patientId: input.patientId,
+          appointmentDate: input.date,
+          appointmentNo: 2,
+          status: "cancelled",
+        },
+      ]);
+      const rows = await getPatientAppointments(input.actor.userId);
+      expect(rows.map((row) => row.date)).toEqual([
+        "2026-10-24",
+        input.date,
+        input.date,
+        "2026-11-07",
+      ]);
+      expect(rows.map((row) => row.isUpcoming)).toEqual([false, false, false, true]);
+      expect(rows.map((row) => row.canCancel)).toEqual([false, false, false, true]);
+    });
+
+    it("cancels idempotently, restores availability and preserves token numbering", async () => {
+      await setCapacity(1);
+      const booked = await bookAppointment(input);
+      const cancelInput = { appointmentId: booked.appointment!.id, actor: input.actor };
+      expect(await cancelAppointment(cancelInput)).toEqual({ success: true });
+      expect(await cancelAppointment(cancelInput)).toEqual({ success: true });
+      expect((await getPatientAppointments(input.actor.userId))[0]).toMatchObject({
+        status: "cancelled",
+        appointmentNo: 1,
+        canCancel: false,
+      });
+      expect((await getOpenDatesForDoctor(input.doctorId)).dates[0]).toMatchObject({
+        date: input.date,
+        availableCount: 1,
+      });
+      expect(await bookAppointment(input)).toMatchObject({
+        success: true,
+        appointmentNo: 2,
+      });
+    });
+
+    it("serializes simultaneous cancellations and a booking without overbooking", async () => {
+      await setCapacity(1);
+      const booked = await bookAppointment(input);
+      const cancelInput = { appointmentId: booked.appointment!.id, actor: input.actor };
+      const results = await Promise.all([
+        cancelAppointment(cancelInput),
+        cancelAppointment(cancelInput),
+        bookAppointment(input),
+      ]);
+      expect(results[0].success).toBe(true);
+      expect(results[1].success).toBe(true);
+      if (!results[2].success) {
+        expect(results[2]).toMatchObject({ code: "SESSION_FULL" });
+        expect(await bookAppointment(input)).toMatchObject({
+          success: true,
+          appointmentNo: 2,
+        });
+      }
+      const rows = await database.select().from(appointment);
+      expect(rows.filter((row) => row.status === "booked")).toHaveLength(1);
+      expect(rows.map((row) => row.appointmentNo).sort()).toEqual([1, 2]);
+    });
+
+    it.each(["receptionist", "admin"])(
+      "allows %s to cancel a walk-in booking",
+      async (role) => {
+        await database.update(user).set({ role }).where(eq(user.id, input.actor.userId));
+        const actor = { ...input.actor, role };
+        const booked = await bookAppointment({
+          ...input,
+          patientId: otherPatientId,
+          actor,
+        });
+        expect(
+          await cancelAppointment({ appointmentId: booked.appointment!.id, actor })
+        ).toEqual({ success: true });
+      }
+    );
+
+    it("rejects completed or checked-in status and elapsed appointments", async () => {
+      const booked = await bookAppointment(input);
+      const cancelInput = { appointmentId: booked.appointment!.id, actor: input.actor };
+      for (const status of ["completed", "checked_in"]) {
+        await database.update(appointment).set({ status });
+        expect(await cancelAppointment(cancelInput)).toMatchObject({
+          code: "APPOINTMENT_CLOSED",
+          statusCode: 409,
+        });
+      }
+      await database.update(appointment).set({ status: "booked" });
+      vi.setSystemTime(new Date("2026-10-31T06:30:00Z"));
+      expect(await cancelAppointment(cancelInput)).toMatchObject({
+        code: "APPOINTMENT_CLOSED",
+      });
+      expect((await getPatientAppointments(input.actor.userId))[0]).toMatchObject({
+        isUpcoming: false,
+        canCancel: false,
+      });
+      vi.setSystemTime(new Date("2026-11-01T00:00:00Z"));
+      expect(await cancelAppointment(cancelInput)).toMatchObject({
+        code: "APPOINTMENT_CLOSED",
+      });
+    });
+
+    it("allows cancelling a future booking after its weekly rule was removed", async () => {
+      const booked = await bookAppointment({ ...input, date: "2026-11-07" });
+      await database.delete(doctorAvailability);
+      expect(
+        await cancelAppointment({
+          appointmentId: booked.appointment!.id,
+          actor: input.actor,
+        })
+      ).toEqual({ success: true });
+    });
+
+    it("rejects malformed, missing, banned, and stale-role cancellation actors", async () => {
+      const booked = await bookAppointment(input);
+      const cancelInput = { appointmentId: booked.appointment!.id, actor: input.actor };
+      expect(
+        await cancelAppointment({ ...cancelInput, appointmentId: "invalid" })
+      ).toMatchObject({ statusCode: 400 });
+      expect(
+        await cancelAppointment({ ...cancelInput, appointmentId: randomUUID() })
+      ).toMatchObject({ statusCode: 404 });
+      expect(
+        await cancelAppointment({
+          ...cancelInput,
+          actor: { userId: "", role: "patient" },
+        })
+      ).toMatchObject({ statusCode: 401 });
+      expect(
+        await cancelAppointment({
+          ...cancelInput,
+          actor: { ...input.actor, role: "nurse" },
+        })
+      ).toMatchObject({ statusCode: 403 });
+      await database
+        .update(user)
+        .set({ banned: true })
+        .where(eq(user.id, input.actor.userId));
+      expect(await cancelAppointment(cancelInput)).toMatchObject({ statusCode: 403 });
+      await expect(getPatientAppointments(input.actor.userId)).rejects.toMatchObject({
+        statusCode: 403,
+      });
+      await database
+        .update(user)
+        .set({ banned: false, role: "admin" })
+        .where(eq(user.id, input.actor.userId));
+      expect(await cancelAppointment(cancelInput)).toMatchObject({ statusCode: 403 });
+      await expect(getPatientAppointments(input.actor.userId)).rejects.toMatchObject({
+        statusCode: 403,
+      });
+    });
+
+    it("lists only active doctor accounts from the database", async () => {
+      expect(await getPatientDoctors()).toMatchObject([
+        { id: input.doctorId, name: "Doctor", consultationFee: "1500.00" },
+      ]);
+      await database.update(doctor).set({ isActive: false });
+      expect(await getPatientDoctors()).toEqual([]);
+      await database.update(doctor).set({ isActive: true });
+      await database.update(user).set({ banned: true }).where(eq(user.id, doctorUserId));
+      expect(await getPatientDoctors()).toEqual([]);
+      await database
+        .update(user)
+        .set({ banned: false, role: "nurse" })
+        .where(eq(user.id, doctorUserId));
+      expect(await getPatientDoctors()).toEqual([]);
+    });
+
+    it("creates a patient profile idempotently for concurrent first visits", async () => {
+      const userId = randomUUID();
+      await database
+        .insert(user)
+        .values({
+          id: userId,
+          name: "New Patient",
+          email: `${userId}@test.invalid`,
+          role: "patient",
+        });
+      const profiles = await Promise.all([
+        getOrCreatePatientForUser(userId),
+        getOrCreatePatientForUser(userId),
+      ]);
+      expect(profiles[0].id).toBe(profiles[1].id);
+      expect(profiles[0].fullName).toBe("New Patient");
+      expect(
+        await database.select().from(patient).where(eq(patient.userId, userId))
+      ).toHaveLength(1);
+    });
+  });
+
   describe("Open date discovery", () => {
     it("returns recurring sessions, metadata and initial capacity in date order", async () => {
       const [specialtyRow] = await database.select().from(specialty).limit(1);
@@ -190,27 +457,23 @@ describe.skipIf(!testConfig.adminUrl)("Transactional booking (PostgreSQL)", () =
     it("does not count another doctor's appointments", async () => {
       await bookAppointment(input);
       const otherUserId = randomUUID();
-      await database
-        .insert(user)
-        .values({
-          id: otherUserId,
-          name: "Other Doctor",
-          email: `${otherUserId}@test.invalid`,
-          role: "doctor",
-        });
+      await database.insert(user).values({
+        id: otherUserId,
+        name: "Other Doctor",
+        email: `${otherUserId}@test.invalid`,
+        role: "doctor",
+      });
       const [otherDoctor] = await database
         .insert(doctor)
         .values({ userId: otherUserId })
         .returning();
-      await database
-        .insert(doctorAvailability)
-        .values({
-          doctorId: otherDoctor.id,
-          dayOfWeek: 6,
-          startTime: "09:00",
-          endTime: "12:00",
-          maxPatients: 1,
-        });
+      await database.insert(doctorAvailability).values({
+        doctorId: otherDoctor.id,
+        dayOfWeek: 6,
+        startTime: "09:00",
+        endTime: "12:00",
+        maxPatients: 1,
+      });
       expect((await getOpenDatesForDoctor(otherDoctor.id)).dates[0]).toMatchObject({
         bookedCount: 0,
         availableCount: 1,

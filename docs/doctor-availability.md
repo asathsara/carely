@@ -64,4 +64,4 @@ To check the complete flow with the configured database:
 7. Sign in as another doctor and confirm they have an independent schedule.
 8. Verify signed-out API requests return `401`, and patient/reception/admin requests return `403`.
 
-The [transactional booking service](booking-service.md) and [open-date discovery API](open-dates.md) are now implemented. Patient booking integration and cancellation remain subsequent Track 2 work. Saving availability does not yet enable live patient booking.
+The [transactional booking service](booking-service.md), [open-date discovery API](open-dates.md), and [patient booking integration and cancellation](patient-ui.md) are now implemented. Active doctors with enabled sessions and remaining capacity can be booked through the patient portal.

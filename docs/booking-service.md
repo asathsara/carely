@@ -2,7 +2,7 @@
 
 Task 8.3 responsibility 3 is implemented in `lib/services/booking.ts`.
 The [open-dates API](open-dates.md) (responsibility 4) is also implemented.
-Patient integration and cancellation (responsibility 5) remain pending.
+[Patient integration and cancellation](patient-ui.md) (responsibility 5) are also implemented.
 
 ## Server contract
 
@@ -76,5 +76,6 @@ two booking requests are visibly waiting on PostgreSQL locks, then verifies one
 success and one `409` failure. Another lock-wait test advances the clock to the
 session end before releasing the lock and verifies rejection without an insert.
 
-Cancellation in these tests is a direct fixture update. The cancellation service
-and API remain part of responsibility 5.
+The suite also exercises the cancellation service and owned patient appointment
+queries. See [Patient UI](patient-ui.md) for the API contracts, cancellation policy,
+and remaining queue/check-in integration.

@@ -20,6 +20,12 @@ export const bookAppointmentSchema = z.object({
 export type BookAppointmentInput = z.infer<typeof bookAppointmentSchema>;
 
 export const openDatesQuerySchema = bookAppointmentSchema.pick({ doctorId: true });
+export const patientBookingSchema = bookAppointmentSchema
+  .omit({ patientId: true })
+  .strict();
+export const cancelAppointmentSchema = z.object({
+  appointmentId: z.uuid("Invalid appointment ID"),
+});
 
 export interface BookAppointmentActor {
   userId: string;
@@ -63,4 +69,26 @@ export interface OpenDatesResponse {
 export interface CancelAppointmentParams {
   appointmentId: string;
   actor: BookAppointmentActor;
+}
+
+export interface PatientDoctorOption {
+  id: string;
+  name: string;
+  specialtyName: string | null;
+  consultationFee: string | null;
+}
+
+export interface PatientAppointmentView {
+  id: string;
+  doctorId: string;
+  doctorName: string;
+  specialtyName: string | null;
+  date: string;
+  appointmentNo: number;
+  status: string;
+  feeAmount: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  isUpcoming: boolean;
+  canCancel: boolean;
 }

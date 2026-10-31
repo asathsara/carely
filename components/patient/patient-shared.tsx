@@ -71,7 +71,9 @@ export function FactCard({
       <p className="text-muted-foreground text-xs font-semibold tracking-wider uppercase">
         {label}
       </p>
-      <p className="text-foreground mt-1.5 text-xs font-semibold sm:text-sm">{value}</p>
+      <p className="text-foreground mt-1.5 text-xs font-semibold break-words sm:text-sm">
+        {value}
+      </p>
     </div>
   );
 }
