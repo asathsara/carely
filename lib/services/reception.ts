@@ -1,7 +1,10 @@
 import { and, asc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { patient } from "@/lib/db/schema/patient";
-import type { CreateWalkInPatientInput } from "@/lib/schemas/reception";
+import type {
+  CreateWalkInPatientInput,
+  ReceptionPatientSummary,
+} from "@/lib/schemas/reception";
 
 export class ReceptionServiceError extends Error {
   constructor(
@@ -13,14 +16,6 @@ export class ReceptionServiceError extends Error {
     this.name = "ReceptionServiceError";
   }
 }
-
-export type ReceptionPatientSummary = {
-  id: string;
-  patientNo: string;
-  fullName: string;
-  dateOfBirth: string | null;
-  phone: string | null;
-};
 
 function toSummary(row: typeof patient.$inferSelect): ReceptionPatientSummary {
   return {

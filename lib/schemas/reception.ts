@@ -42,3 +42,19 @@ export const receptionPatientIdSchema = z.object({ id: z.uuid("Invalid patient I
 export const receptionBookingSchema = bookAppointmentSchema.strict();
 
 export type CreateWalkInPatientInput = z.infer<typeof createWalkInPatientSchema>;
+
+export type ReceptionPatientSummary = {
+  id: string;
+  patientNo: string;
+  fullName: string;
+  dateOfBirth: string | null;
+  phone: string | null;
+};
+
+export type ReceptionPatientDetails = ReceptionPatientSummary & {
+  gender: string | null;
+  address: string | null;
+  emergencyContactName: string | null;
+  emergencyContactPhone: string | null;
+  hasPortalAccount: boolean;
+};
