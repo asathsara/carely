@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -6,85 +6,169 @@ import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+
 import {
   Dialog,
+  DialogClose,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
-  DialogClose,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Panel } from "@/components/workspace/workspace-ui";
-import { useReceptionDemo } from "@/components/reception/reception-demo-provider";
-import type { ReceptionPatient } from "@/lib/mock/reception";
+import type {
+  ReceptionPatientDetails,
+  ReceptionPatientSummary,
+} from "@/lib/schemas/reception";
+
+type RegistrationValues = {
+  fullName: string;
+  dateOfBirth?: string;
+  phone?: string;
+  address?: string;
+};
+
+function initials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2);
+}
+
+function compact(values: RegistrationValues) {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== undefined && value !== "")
+  );
+}
 
 export function PatientRegistration() {
   const router = useRouter();
-  const { patients, selectPatient, registerPatient } = useReceptionDemo();
   const [query, setQuery] = useState("");
-  const [foundId, setFoundId] = useState<string | null>(patients[0].id);
+  const [patients, setPatients] = useState<ReceptionPatientSummary[]>([]);
+  const [selected, setSelected] = useState<ReceptionPatientDetails | null>(null);
   const [searchError, setSearchError] = useState("");
-  const [error, setError] = useState("");
-  const [registered, setRegistered] = useState<ReceptionPatient | null>(null);
-  const patient = patients.find((item) => item.id === foundId);
-  function find(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const term = query.trim().toLowerCase();
-    const digits = term.replace(/\D/g, "");
-    const found = patients.find(
-      (item) =>
-        item.id.toLowerCase() === term ||
-        (digits.length >= 7 && item.phone.replace(/\D/g, "") === digits)
-    );
-    setFoundId(found?.id ?? null);
-    setSearchError(
-      found
-        ? ""
-        : "No matching patient. Check the ID or phone number, or register a new patient."
-    );
+  const [registrationError, setRegistrationError] = useState("");
+  const [pending, setPending] = useState(false);
+  const [duplicateCandidates, setDuplicateCandidates] = useState<
+    ReceptionPatientSummary[]
+  >([]);
+  const [registrationDraft, setRegistrationDraft] = useState<RegistrationValues | null>(
+    null
+  );
+  const [created, setCreated] = useState<ReceptionPatientSummary | null>(null);
+
+  function continueWith(patientId: string) {
+    router.push(`/reception/channeling?patientId=${encodeURIComponent(patientId)}`);
   }
-  function register(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const values = {
-      name: String(data.get("name")).trim(),
-      dob: String(data.get("dob")),
-      phone: String(data.get("phone")).trim(),
-      address: String(data.get("address")).trim(),
-    };
-    if (!values.name || !values.address) {
-      setError("Complete the patient's name and address.");
-      return;
-    }
-    const digits = values.phone.replace(/\D/g, "");
-    if (digits.length < 9 || digits.length > 15) {
-      setError("Enter a valid phone number with 9 to 15 digits.");
-      return;
-    }
-    if (
-      patients.some(
-        (item) =>
-          item.phone.replace(/\D/g, "") === digits &&
-          item.name.toLowerCase() === values.name.toLowerCase()
-      )
-    ) {
-      setError(
-        "This patient already has a record. Use patient search to avoid a duplicate."
+
+  async function loadDetails(patientId: string) {
+    try {
+      const response = await fetch(
+        `/api/reception/patients/${encodeURIComponent(patientId)}`,
+        {
+          cache: "no-store",
+        }
       );
+      const data: { patient?: ReceptionPatientDetails; error?: string } =
+        await response.json();
+      if (!response.ok || !data.patient)
+        throw new Error(data.error ?? "Unable to load patient.");
+      setSelected(data.patient);
+      setSearchError("");
+    } catch (cause) {
+      setSearchError(cause instanceof Error ? cause.message : "Unable to load patient.");
+    }
+  }
+
+  async function find(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const term = query.trim();
+    if (!term) return;
+    setPending(true);
+    setSearchError("");
+    setSelected(null);
+    try {
+      const response = await fetch(
+        `/api/reception/patients/search?q=${encodeURIComponent(term)}`,
+        {
+          cache: "no-store",
+        }
+      );
+      const data: { patients?: ReceptionPatientSummary[]; error?: string } =
+        await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Unable to search patients.");
+      setPatients(data.patients ?? []);
+      if ((data.patients?.length ?? 0) === 0)
+        setSearchError("No matching patient records.");
+    } catch (cause) {
+      setPatients([]);
+      setSearchError(
+        cause instanceof Error ? cause.message : "Unable to search patients."
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  function readRegistration(event: FormEvent<HTMLFormElement>): RegistrationValues {
+    const data = new FormData(event.currentTarget);
+    return {
+      fullName: String(data.get("fullName") ?? "").trim(),
+      dateOfBirth: String(data.get("dateOfBirth") ?? "") || undefined,
+      phone: String(data.get("phone") ?? "").trim() || undefined,
+      address: String(data.get("address") ?? "").trim() || undefined,
+    };
+  }
+
+  async function register(values: RegistrationValues, confirmDuplicate = false) {
+    setPending(true);
+    setRegistrationError("");
+    try {
+      const response = await fetch("/api/reception/patients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...compact(values), confirmDuplicate }),
+      });
+      const data: {
+        patient?: ReceptionPatientSummary;
+        duplicateCandidates?: ReceptionPatientSummary[];
+        error?: string;
+      } = await response.json();
+      if (response.status === 409 && data.duplicateCandidates) {
+        setRegistrationDraft(values);
+        setDuplicateCandidates(data.duplicateCandidates);
+        return;
+      }
+      if (!response.ok || !data.patient) {
+        throw new Error(data.error ?? "Unable to register patient.");
+      }
+      setDuplicateCandidates([]);
+      setRegistrationDraft(null);
+      setCreated(data.patient);
+      setSelected(null);
+    } catch (cause) {
+      setRegistrationError(
+        cause instanceof Error ? cause.message : "Unable to register patient."
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  function submitRegistration(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const values = readRegistration(event);
+    if (!values.fullName) {
+      setRegistrationError("Full name is required.");
       return;
     }
-    const created = registerPatient(values);
-    setRegistered(created);
-    setFoundId(created.id);
-    setError("");
-    event.currentTarget.reset();
+    void register(values);
   }
-  function continueWith(id: string) {
-    selectPatient(id);
-    router.push("/reception/channeling");
-  }
+
   return (
     <>
       <form
@@ -96,14 +180,16 @@ export function PatientRegistration() {
             id="registration-search"
             label="Find patient"
             showLabel
-            placeholder="Search by phone number or patient ID"
+            placeholder="Patient number, phone number, or name"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             controlSize="compact"
             required
           />
         </div>
-        <Button type="submit">Find patient</Button>
+        <Button type="submit" disabled={pending}>
+          {pending ? "Searching..." : "Find patient"}
+        </Button>
       </form>
       {searchError && (
         <p role="status" className="text-muted-foreground mb-4 text-sm">
@@ -112,57 +198,68 @@ export function PatientRegistration() {
       )}
       <div className="grid items-start gap-6 xl:grid-cols-2">
         <Panel title="Existing patient">
-          {patient ? (
-            <>
-              <Card className="bg-secondary flex items-start gap-3 border-0 p-4">
-                <Avatar
-                  alt={patient.name}
-                  fallback={patient.name
-                    .split(" ")
-                    .map((part) => part[0])
-                    .join("")
-                    .slice(0, 2)}
-                />
-                <div className="min-w-0">
-                  <p className="font-semibold">{patient.name}</p>
-                  <p className="text-muted-foreground mt-1 text-sm">{patient.id}</p>
-                  <p className="text-muted-foreground mt-2 text-sm">{patient.phone}</p>
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    Last visit: {patient.lastVisit}
+          {selected ? (
+            <Card className="bg-secondary border-0 p-4">
+              <div className="flex items-start gap-3">
+                <Avatar alt={selected.fullName} fallback={initials(selected.fullName)} />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">{selected.fullName}</p>
+                  <p className="text-muted-foreground mt-1 text-sm">
+                    {selected.patientNo}
                   </p>
+                  <p className="text-muted-foreground mt-2 text-sm">
+                    DOB: {selected.dateOfBirth ?? "Not recorded"}
+                  </p>
+                  <p className="text-muted-foreground mt-1 text-sm">
+                    Phone: {selected.phone ?? "Not recorded"}
+                  </p>
+                  {selected.address && (
+                    <p className="text-muted-foreground mt-1 text-sm">
+                      {selected.address}
+                    </p>
+                  )}
                 </div>
-              </Card>
-              <Button fullWidth className="mt-4" onClick={() => continueWith(patient.id)}>
-                Use existing patient
+                <Badge>{selected.hasPortalAccount ? "Portal linked" : "Walk-in"}</Badge>
+              </div>
+              <Button
+                fullWidth
+                className="mt-4"
+                onClick={() => continueWith(selected.id)}
+              >
+                Use this patient
               </Button>
-            </>
+            </Card>
+          ) : patients.length > 0 ? (
+            <div className="space-y-3">
+              {patients.map((patient) => (
+                <button
+                  key={patient.id}
+                  type="button"
+                  onClick={() => void loadDetails(patient.id)}
+                  className="bg-carely-surface hover:bg-secondary w-full rounded-lg p-4 text-left transition-colors"
+                >
+                  <p className="font-semibold">{patient.fullName}</p>
+                  <p className="text-muted-foreground mt-1 text-sm">
+                    {patient.patientNo}
+                  </p>
+                  <p className="text-muted-foreground mt-2 text-xs">
+                    DOB: {patient.dateOfBirth ?? "Not recorded"}
+                    {patient.phone ? ` · ${patient.phone}` : ""}
+                  </p>
+                </button>
+              ))}
+            </div>
           ) : (
             <p className="text-muted-foreground py-6 text-sm">
-              Find a patient to continue with an existing record.
+              Search by patient number, phone number, or name to find an existing record.
             </p>
           )}
-          <h3 className="mt-6 mb-3 text-sm font-semibold">Today at front desk</h3>
-          <div className="space-y-3">
-            {[
-              ["09:40", "Walk-in registration", "Completed"],
-              ["10:02", "OPD channeling", "Cardiology"],
-            ].map(([time, activity, status]) => (
-              <div
-                key={time}
-                className="bg-carely-surface flex flex-wrap items-center gap-3 rounded-lg p-3 text-sm"
-              >
-                <time className="text-muted-foreground text-xs">{time}</time>
-                <span className="flex-1">{activity}</span>
-                <Badge>{status}</Badge>
-              </div>
-            ))}
-          </div>
         </Panel>
-        <Panel title="New patient">
-          <form onSubmit={register} className="space-y-4">
+        <Panel title="New walk-in patient">
+          <form onSubmit={submitRegistration} className="space-y-4">
             <Input
               id="registration-name"
-              name="name"
+              name="fullName"
               label="Full name"
               showLabel
               placeholder="Enter legal name"
@@ -172,73 +269,98 @@ export function PatientRegistration() {
             />
             <Input
               id="registration-dob"
-              name="dob"
-              label="Date of birth"
+              name="dateOfBirth"
+              label="Date of birth (optional)"
               showLabel
               type="date"
               max={new Date().toISOString().slice(0, 10)}
-              required
             />
             <Input
               id="registration-phone"
               name="phone"
-              label="Phone number"
+              label="Phone number (optional)"
               showLabel
               type="tel"
               placeholder="+94"
               autoComplete="tel"
               maxLength={24}
-              required
             />
             <Input
               id="registration-address"
               name="address"
-              label="Address"
+              label="Address (optional)"
               showLabel
               placeholder="Street, city"
               autoComplete="street-address"
               maxLength={240}
-              required
             />
-            {error && (
+            {registrationError && (
               <p role="alert" className="text-destructive text-sm">
-                {error}
+                {registrationError}
               </p>
             )}
-            <Button type="submit" className="w-full sm:w-auto">
-              Register walk-in
+            <Button type="submit" className="w-full sm:w-auto" disabled={pending}>
+              {pending ? "Saving..." : "Register walk-in"}
             </Button>
           </form>
         </Panel>
       </div>
       <Dialog
-        open={!!registered}
-        onOpenChange={(open) => {
-          if (!open) setRegistered(null);
-        }}
+        open={duplicateCandidates.length > 0}
+        onOpenChange={() => setDuplicateCandidates([])}
       >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Possible duplicate record</DialogTitle>
+            <DialogDescription>
+              The name, date of birth, and phone number match an existing patient. Review
+              the record before creating another one.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {duplicateCandidates.map((patient) => (
+              <Button
+                key={patient.id}
+                variant="outline"
+                className="h-auto w-full justify-start py-3 text-left whitespace-normal"
+                onClick={() => {
+                  setDuplicateCandidates([]);
+                  void loadDetails(patient.id);
+                }}
+              >
+                {patient.fullName} · {patient.patientNo} ·{" "}
+                {patient.dateOfBirth ?? "No DOB"}
+              </Button>
+            ))}
+          </div>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" disabled={pending} />}>
+              Go back
+            </DialogClose>
+            <Button
+              disabled={pending || !registrationDraft}
+              onClick={() => registrationDraft && void register(registrationDraft, true)}
+            >
+              Create new record
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!created} onOpenChange={(open) => !open && setCreated(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Patient registered</DialogTitle>
             <DialogDescription>
-              A patient record has been created in this demo session.
+              A walk-in patient record has been saved.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-lg border p-4">
-            <p className="font-semibold">{registered?.name}</p>
-            <p className="text-muted-foreground mt-1 text-sm">{registered?.id}</p>
+            <p className="font-semibold">{created?.fullName}</p>
+            <p className="text-muted-foreground mt-1 text-sm">{created?.patientNo}</p>
           </div>
           <DialogFooter>
             <DialogClose render={<Button variant="outline" />}>Close</DialogClose>
-            <Button
-              onClick={() => {
-                if (registered) {
-                  const id = registered.id;
-                  setRegistered(null);
-                  continueWith(id);
-                }
-              }}
-            >
+            <Button onClick={() => created && continueWith(created.id)}>
               Continue to channeling
             </Button>
           </DialogFooter>
