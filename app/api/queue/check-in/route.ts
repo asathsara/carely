@@ -35,7 +35,10 @@ export async function POST(request: Request) {
     unstable_rethrow(error);
     if (error instanceof AuthError || error instanceof ServiceError) {
       return NextResponse.json(
-        { error: error.message, ...(error instanceof ServiceError ? { code: error.code } : {}) },
+        {
+          error: error.message,
+          ...(error instanceof ServiceError ? { code: error.code } : {}),
+        },
         { status: error.statusCode, headers }
       );
     }

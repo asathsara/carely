@@ -25,7 +25,11 @@ function assertUuid(id: string) {
 
 function assertReceptionist(role: string) {
   if (role !== "receptionist") {
-    throw new ServiceError("Only reception staff can check in appointments.", 403, "FORBIDDEN");
+    throw new ServiceError(
+      "Only reception staff can check in appointments.",
+      403,
+      "FORBIDDEN"
+    );
   }
 }
 

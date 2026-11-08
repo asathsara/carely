@@ -18,8 +18,14 @@ function request(body: unknown = { appointmentId }) {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.getSession.mockResolvedValue({ user: { id: "reception-user", role: "receptionist" } });
-  mocks.checkIn.mockResolvedValue({ id: "queue-entry", appointmentId, status: "waiting" });
+  mocks.getSession.mockResolvedValue({
+    user: { id: "reception-user", role: "receptionist" },
+  });
+  mocks.checkIn.mockResolvedValue({
+    id: "queue-entry",
+    appointmentId,
+    status: "waiting",
+  });
 });
 
 describe("POST /api/queue/check-in", () => {
@@ -36,27 +42,31 @@ describe("POST /api/queue/check-in", () => {
     expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 
-  it.each([null, { user: { id: "patient-user", role: "patient" } }, { user: { id: "nurse-user", role: "nurse" } }])(
-    "rejects an unauthorised session: %j",
-    async (session) => {
-      mocks.getSession.mockResolvedValue(session);
-      expect((await POST(request())).status).toBe(session ? 403 : 401);
+  it.each([
+    null,
+    { user: { id: "patient-user", role: "patient" } },
+    { user: { id: "nurse-user", role: "nurse" } },
+  ])("rejects an unauthorised session: %j", async (session) => {
+    mocks.getSession.mockResolvedValue(session);
+    expect((await POST(request())).status).toBe(session ? 403 : 401);
+    expect(mocks.checkIn).not.toHaveBeenCalled();
+  });
+
+  it.each([{}, { appointmentId: "not-a-uuid" }, { appointmentId, extra: true }])(
+    "rejects invalid input: %j",
+    async (body) => {
+      expect((await POST(request(body))).status).toBe(400);
       expect(mocks.checkIn).not.toHaveBeenCalled();
     }
   );
 
-  it.each([
-    {},
-    { appointmentId: "not-a-uuid" },
-    { appointmentId, extra: true },
-  ])("rejects invalid input: %j", async (body) => {
-    expect((await POST(request(body))).status).toBe(400);
-    expect(mocks.checkIn).not.toHaveBeenCalled();
-  });
-
   it("keeps service conflict responses intact", async () => {
     mocks.checkIn.mockRejectedValue(
-      new ServiceError("Only today's booked appointments can be checked in.", 409, "APPOINTMENT_CLOSED")
+      new ServiceError(
+        "Only today's booked appointments can be checked in.",
+        409,
+        "APPOINTMENT_CLOSED"
+      )
     );
     const response = await POST(request());
     expect(response.status).toBe(409);

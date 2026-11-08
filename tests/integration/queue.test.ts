@@ -11,7 +11,8 @@ import type { Database } from "@/lib/db/types";
 const config = vi.hoisted(() => ({
   adminUrl:
     process.env.FOUNDATION_TEST_DATABASE_URL ?? process.env.BOOKING_TEST_DATABASE_URL,
-  databaseName: "carely_queue_test_" + Date.now() + "_" + Math.random().toString(16).slice(2),
+  databaseName:
+    "carely_queue_test_" + Date.now() + "_" + Math.random().toString(16).slice(2),
 }));
 
 vi.mock("@/lib/db", async () => {
@@ -55,14 +56,26 @@ describe.skipIf(!config.adminUrl)("Queue check-in (PostgreSQL)", () => {
 
   it("checks in only valid appointments and returns the same entry on retry", async () => {
     const booking = await createAppointment(database);
-    const first = await queue.checkInAppointment({ appointmentId: booking.id, actor: receptionist });
-    const retried = await queue.checkInAppointment({ appointmentId: booking.id, actor: receptionist });
+    const first = await queue.checkInAppointment({
+      appointmentId: booking.id,
+      actor: receptionist,
+    });
+    const retried = await queue.checkInAppointment({
+      appointmentId: booking.id,
+      actor: receptionist,
+    });
     expect(retried.id).toBe(first.id);
     expect(
-      await database.select().from(queueEntry).where(eq(queueEntry.appointmentId, booking.id))
+      await database
+        .select()
+        .from(queueEntry)
+        .where(eq(queueEntry.appointmentId, booking.id))
     ).toHaveLength(1);
     expect(
-      await database.select().from(encounter).where(eq(encounter.appointmentId, booking.id))
+      await database
+        .select()
+        .from(encounter)
+        .where(eq(encounter.appointmentId, booking.id))
     ).toHaveLength(1);
     expect(
       await database.select().from(auditLog).where(eq(auditLog.entityId, first.id))
@@ -83,30 +96,64 @@ describe.skipIf(!config.adminUrl)("Queue check-in (PostgreSQL)", () => {
 
   it("rolls back queue, encounter and audit writes with its caller transaction", async () => {
     const booking = await createAppointment(database);
+    const auditsBefore = await database
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.userId, receptionist.userId));
     await expect(
       database.transaction(async (tx) => {
-        await queue.checkInAppointment({ appointmentId: booking.id, actor: receptionist }, tx);
+        await queue.checkInAppointment(
+          { appointmentId: booking.id, actor: receptionist },
+          tx
+        );
         throw new Error("simulate domain failure");
       })
     ).rejects.toThrow("simulate domain failure");
     expect(
-      await database.select().from(queueEntry).where(eq(queueEntry.appointmentId, booking.id))
+      await database
+        .select()
+        .from(queueEntry)
+        .where(eq(queueEntry.appointmentId, booking.id))
     ).toHaveLength(0);
     expect(
-      await database.select().from(encounter).where(eq(encounter.appointmentId, booking.id))
+      await database
+        .select()
+        .from(encounter)
+        .where(eq(encounter.appointmentId, booking.id))
     ).toHaveLength(0);
+    expect(
+      await database
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.userId, receptionist.userId))
+    ).toHaveLength(auditsBefore.length);
   });
 
   it("allows exactly one concurrent conditional queue transition", async () => {
     const booking = await createAppointment(database);
-    const entry = await queue.checkInAppointment({ appointmentId: booking.id, actor: receptionist });
+    const entry = await queue.checkInAppointment({
+      appointmentId: booking.id,
+      actor: receptionist,
+    });
     const results = await Promise.allSettled([
-      queue.transitionQueueEntry({ entryId: entry.id, from: "waiting", to: "intake_done", actor: nurse }),
-      queue.transitionQueueEntry({ entryId: entry.id, from: "waiting", to: "intake_done", actor: nurse }),
+      queue.transitionQueueEntry({
+        entryId: entry.id,
+        from: "waiting",
+        to: "intake_done",
+        actor: nurse,
+      }),
+      queue.transitionQueueEntry({
+        entryId: entry.id,
+        from: "waiting",
+        to: "intake_done",
+        actor: nurse,
+      }),
     ]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
     const failed = results.find((result) => result.status === "rejected");
-    expect(failed).toMatchObject({ reason: { code: "QUEUE_STATE_CONFLICT", statusCode: 409 } });
+    expect(failed).toMatchObject({
+      reason: { code: "QUEUE_STATE_CONFLICT", statusCode: 409 },
+    });
   });
 });
