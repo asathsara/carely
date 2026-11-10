@@ -124,6 +124,32 @@ describe.skipIf(!config.adminUrl)("Queue check-in (PostgreSQL)", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("rejects cancellation after check-in and check-in after cancellation", async () => {
+    const bookingService = await import("@/lib/services/booking");
+    const checkedInFirst = await createAppointment(database);
+    await queue.checkInAppointment({
+      appointmentId: checkedInFirst.id,
+      actor: receptionist,
+    });
+    await expect(
+      bookingService.cancelAppointment({
+        appointmentId: checkedInFirst.id,
+        actor: receptionist,
+      })
+    ).resolves.toMatchObject({ success: false, code: "APPOINTMENT_CLOSED" });
+
+    const cancelledFirst = await createAppointment(database);
+    await expect(
+      bookingService.cancelAppointment({
+        appointmentId: cancelledFirst.id,
+        actor: receptionist,
+      })
+    ).resolves.toEqual({ success: true });
+    await expect(
+      queue.checkInAppointment({ appointmentId: cancelledFirst.id, actor: receptionist })
+    ).rejects.toMatchObject({ code: "APPOINTMENT_CLOSED" });
+  });
+
   it("rolls back queue, encounter and audit writes with its caller transaction", async () => {
     const booking = await createAppointment(database);
     const auditsBefore = await database
