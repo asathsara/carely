@@ -72,4 +72,16 @@ describe("POST /api/queue/check-in", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ code: "APPOINTMENT_CLOSED" });
   });
+
+  it("rejects cross-origin state changes before calling the service", async () => {
+    const response = await POST(
+      new Request("http://localhost/api/queue/check-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: "https://evil.example" },
+        body: JSON.stringify({ appointmentId }),
+      })
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.checkIn).not.toHaveBeenCalled();
+  });
 });

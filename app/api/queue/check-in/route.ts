@@ -9,6 +9,13 @@ const headers = { "Cache-Control": "no-store" };
 
 export async function POST(request: Request) {
   try {
+    const origin = request.headers.get("origin");
+    if (origin && origin !== new URL(request.url).origin) {
+      return NextResponse.json(
+        { error: "Cross-origin queue changes are not allowed." },
+        { status: 403, headers }
+      );
+    }
     const session = await requireRole("receptionist", request.headers);
     let body: unknown;
     try {

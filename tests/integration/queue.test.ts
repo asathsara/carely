@@ -5,7 +5,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { auditLog } from "@/lib/db/schema/audit-log";
 import { encounter } from "@/lib/db/schema/encounter";
 import { queueEntry } from "@/lib/db/schema/queue-entry";
-import { createAppointment, createUser } from "../helpers/factories";
+import { appointment } from "@/lib/db/schema/appointment";
+import { user } from "@/lib/db/schema/auth";
+import { createAppointment, createDoctor, createUser } from "../helpers/factories";
 import type { Database } from "@/lib/db/types";
 
 const config = vi.hoisted(() => ({
@@ -94,6 +96,34 @@ describe.skipIf(!config.adminUrl)("Queue check-in (PostgreSQL)", () => {
     ).rejects.toMatchObject({ statusCode: 403 });
   });
 
+  it("serializes concurrent check-in retries and cancellation in either lock order", async () => {
+    const booking = await createAppointment(database);
+    const bookingService = await import("@/lib/services/booking");
+    const results = await Promise.allSettled([
+      queue.checkInAppointment({ appointmentId: booking.id, actor: receptionist }),
+      queue.checkInAppointment({ appointmentId: booking.id, actor: receptionist }),
+      bookingService.cancelAppointment({
+        appointmentId: booking.id,
+        actor: receptionist,
+      }),
+    ]);
+    const entries = await database
+      .select()
+      .from(queueEntry)
+      .where(eq(queueEntry.appointmentId, booking.id));
+    const [after] = await database
+      .select()
+      .from(appointment)
+      .where(eq(appointment.id, booking.id));
+    // Either cancellation wins (no queue row) or check-in wins (appointment stays booked),
+    // but a cancelled appointment can never retain a live queue entry.
+    expect(entries.length).toBeLessThanOrEqual(1);
+    expect(!(after.status === "cancelled" && entries.length > 0)).toBe(true);
+    expect(
+      results.filter((result) => result.status === "fulfilled").length
+    ).toBeGreaterThan(0);
+  });
+
   it("rolls back queue, encounter and audit writes with its caller transaction", async () => {
     const booking = await createAppointment(database);
     const auditsBefore = await database
@@ -155,5 +185,40 @@ describe.skipIf(!config.adminUrl)("Queue check-in (PostgreSQL)", () => {
     expect(failed).toMatchObject({
       reason: { code: "QUEUE_STATE_CONFLICT", statusCode: 409 },
     });
+  });
+
+  it("rejects skipped transitions and a doctor who does not own the appointment", async () => {
+    const booking = await createAppointment(database);
+    const entry = await queue.checkInAppointment({
+      appointmentId: booking.id,
+      actor: receptionist,
+    });
+    const outsider = await createDoctor(database);
+    const [outsiderUser] = await database
+      .select()
+      .from(user)
+      .where(eq(user.id, outsider.userId));
+    await expect(
+      queue.transitionQueueEntry({
+        entryId: entry.id,
+        from: "waiting",
+        to: "with_doctor",
+        actor: { userId: outsiderUser.id, role: "doctor" },
+      })
+    ).rejects.toMatchObject({ code: "INVALID_QUEUE_TRANSITION" });
+    await queue.transitionQueueEntry({
+      entryId: entry.id,
+      from: "waiting",
+      to: "intake_done",
+      actor: nurse,
+    });
+    await expect(
+      queue.transitionQueueEntry({
+        entryId: entry.id,
+        from: "intake_done",
+        to: "with_doctor",
+        actor: { userId: outsiderUser.id, role: "doctor" },
+      })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
