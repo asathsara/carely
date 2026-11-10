@@ -32,14 +32,13 @@ export function PatientProfileForm({
   onSave,
 }: {
   profile: PatientProfileData;
-  onSave: (profile: PatientProfileData) => void;
+  onSave: (profile: PatientProfileData) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState(profile);
   const [saved, setSaved] = useState(false);
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    onSave(draft);
-    setSaved(true);
+    setSaved(await onSave(draft));
   }
   return (
     <>

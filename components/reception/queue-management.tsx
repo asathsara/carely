@@ -31,7 +31,7 @@ const colomboDate = () =>
 export function QueueManagement() {
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [doctorId, setDoctorId] = useState("");
-  const date = useMemo(colomboDate, []);
+  const date = useMemo(() => colomboDate(), []);
   useEffect(() => {
     void fetch("/api/reception/doctors", { cache: "no-store" })
       .then(async (response) => (response.ok ? response.json() : Promise.reject()))

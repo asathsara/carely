@@ -20,7 +20,7 @@ export function useVisiblePolling<T>(url: string, intervalMs = 30_000) {
     }
   }, [url]);
   useEffect(() => {
-    void refresh();
+    const initial = window.setTimeout(() => void refresh(), 0);
     const onVisibility = () => {
       if (document.visibilityState === "visible") void refresh();
     };
@@ -29,6 +29,7 @@ export function useVisiblePolling<T>(url: string, intervalMs = 30_000) {
       if (document.visibilityState === "visible") void refresh();
     }, intervalMs);
     return () => {
+      window.clearTimeout(initial);
       document.removeEventListener("visibilitychange", onVisibility);
       window.clearInterval(timer);
     };

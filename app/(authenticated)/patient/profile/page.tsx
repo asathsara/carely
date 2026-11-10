@@ -31,7 +31,23 @@ export default function PatientProfilePage() {
       />
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,2.1fr)_minmax(0,1fr)]">
         <Card className="min-w-0 p-5 sm:p-6">
-          <PatientProfileForm profile={profile} onSave={setProfile} />
+          <PatientProfileForm
+            profile={profile}
+            onSave={async (draft) => {
+              const response = await fetch("/api/patient/profile", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  phone: draft.phone,
+                  address: draft.address,
+                  emergencyContactName: draft.emergencyContact || null,
+                  emergencyContactPhone: null,
+                }),
+              });
+              if (response.ok) setProfile(draft);
+              return response.ok;
+            }}
+          />
         </Card>
         <div className="min-w-0 space-y-4">
           <Card className="p-5 sm:p-6">
