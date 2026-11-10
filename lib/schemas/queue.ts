@@ -11,6 +11,9 @@ export const queueStatusSchema = z.enum([
 ]);
 export type QueueStatus = z.infer<typeof queueStatusSchema>;
 export const checkInAppointmentSchema = z.object({ appointmentId: z.uuid() }).strict();
+export const queueQuerySchema = z
+  .object({ doctorId: z.uuid(), date: z.string().date() })
+  .strict();
 export const transitionQueueEntrySchema = z
   .object({
     entryId: z.uuid(),

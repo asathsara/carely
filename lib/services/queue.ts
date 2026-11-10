@@ -1,8 +1,11 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { queueActions } from "@/lib/audit/actions/queue";
 import { appointment } from "@/lib/db/schema/appointment";
+import { doctor } from "@/lib/db/schema/doctor";
+import { patient } from "@/lib/db/schema/patient";
+import { user } from "@/lib/db/schema/auth";
 import { encounter } from "@/lib/db/schema/encounter";
 import { queueEntry, type QueueEntry } from "@/lib/db/schema/queue-entry";
 import type { DbTransaction } from "@/lib/db/types";
@@ -170,3 +173,113 @@ export const transitionQueueEntry: TransitionQueueEntry = async (input, tx) => {
   };
   return tx ? run(tx) : db.transaction(run);
 };
+
+export type StaffQueueEntry = {
+  id: string;
+  status: QueueEntry["status"];
+  checkedInAt: Date;
+  appointmentId: string;
+  appointmentNo: number;
+  doctorId: string;
+  doctorName: string;
+  patient: { id: string; patientNo: string; fullName: string };
+};
+
+export async function getStaffQueue(input: {
+  doctorId: string;
+  date: string;
+  actor: { userId: string; role: string };
+}) {
+  assertUuid(input.doctorId);
+  await assertActiveActor(input.actor);
+  if (!["receptionist", "nurse", "doctor"].includes(input.actor.role)) {
+    throw new ServiceError("Forbidden.", 403, "FORBIDDEN");
+  }
+  if (input.actor.role === "doctor") {
+    const [owned] = await db
+      .select({ id: doctor.id })
+      .from(doctor)
+      .where(eq(doctor.userId, input.actor.userId))
+      .limit(1);
+    if (!owned || owned.id !== input.doctorId) {
+      throw new ServiceError("Queue not found.", 404, "NOT_FOUND");
+    }
+  }
+  const rows = await db
+    .select({
+      id: queueEntry.id,
+      status: queueEntry.status,
+      checkedInAt: queueEntry.checkedInAt,
+      appointmentId: appointment.id,
+      appointmentNo: appointment.appointmentNo,
+      doctorId: doctor.id,
+      doctorName: user.name,
+      patientId: patient.id,
+      patientNo: patient.patientNo,
+      patientName: patient.fullName,
+    })
+    .from(queueEntry)
+    .innerJoin(appointment, eq(queueEntry.appointmentId, appointment.id))
+    .innerJoin(doctor, eq(appointment.doctorId, doctor.id))
+    .innerJoin(user, eq(doctor.userId, user.id))
+    .innerJoin(patient, eq(appointment.patientId, patient.id))
+    .where(
+      and(
+        eq(appointment.doctorId, input.doctorId),
+        eq(appointment.appointmentDate, input.date),
+        ne(appointment.status, "cancelled")
+      )
+    )
+    .orderBy(asc(queueEntry.checkedInAt), asc(queueEntry.id));
+  return rows.map((row) => ({
+    id: row.id,
+    status: row.status,
+    checkedInAt: row.checkedInAt,
+    appointmentId: row.appointmentId,
+    appointmentNo: row.appointmentNo,
+    doctorId: row.doctorId,
+    doctorName: row.doctorName,
+    patient: { id: row.patientId, patientNo: row.patientNo, fullName: row.patientName },
+  }));
+}
+
+export async function getOwnQueueStatus(actor: { userId: string; role: string }) {
+  await assertActiveActor(actor);
+  if (actor.role !== "patient") throw new ServiceError("Forbidden.", 403, "FORBIDDEN");
+  const today = colomboNow().date;
+  const [entry] = await db
+    .select({
+      id: queueEntry.id,
+      status: queueEntry.status,
+      doctorId: appointment.doctorId,
+      checkedInAt: queueEntry.checkedInAt,
+    })
+    .from(queueEntry)
+    .innerJoin(appointment, eq(queueEntry.appointmentId, appointment.id))
+    .innerJoin(patient, eq(appointment.patientId, patient.id))
+    .where(
+      and(
+        eq(patient.userId, actor.userId),
+        eq(appointment.appointmentDate, today),
+        ne(appointment.status, "cancelled")
+      )
+    )
+    .orderBy(asc(queueEntry.checkedInAt), asc(queueEntry.id))
+    .limit(1);
+  if (!entry) return { entry: null };
+  const ahead = await db
+    .select({ id: queueEntry.id })
+    .from(queueEntry)
+    .innerJoin(appointment, eq(queueEntry.appointmentId, appointment.id))
+    .where(
+      and(
+        eq(appointment.doctorId, entry.doctorId),
+        eq(appointment.appointmentDate, today),
+        ne(queueEntry.status, "completed"),
+        ne(appointment.status, "cancelled")
+      )
+    )
+    .orderBy(asc(queueEntry.checkedInAt), asc(queueEntry.id));
+  const index = ahead.findIndex((row) => row.id === entry.id);
+  return { entry: { status: entry.status, position: index === -1 ? null : index + 1 } };
+}
