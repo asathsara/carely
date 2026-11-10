@@ -6,8 +6,8 @@ const optionalText = (maxLength: number) =>
     .trim()
     .max(maxLength)
     .nullable()
-    .optional()
-    .transform((value) => value || null);
+    .transform((value) => value || null)
+    .optional();
 
 export const receptionistPatientUpdateSchema = z
   .object({
@@ -20,7 +20,10 @@ export const receptionistPatientUpdateSchema = z
     emergencyContactPhone: optionalText(24),
   })
   .strict()
-  .refine((value) => Object.keys(value).length > 0, "Provide at least one field.");
+  .refine(
+    (value) => Object.values(value).some((field) => field !== undefined),
+    "Provide at least one field."
+  );
 
 export const patientProfileUpdateSchema = z
   .object({
@@ -30,7 +33,24 @@ export const patientProfileUpdateSchema = z
     emergencyContactPhone: optionalText(24),
   })
   .strict()
-  .refine((value) => Object.keys(value).length > 0, "Provide at least one field.");
+  .refine(
+    (value) => Object.values(value).some((field) => field !== undefined),
+    "Provide at least one field."
+  );
 
 export type ReceptionistPatientUpdate = z.infer<typeof receptionistPatientUpdateSchema>;
 export type PatientProfileUpdate = z.infer<typeof patientProfileUpdateSchema>;
+
+export type PatientProfile = {
+  id: string;
+  patientNo: string;
+  fullName: string;
+  dateOfBirth: string | null;
+  gender: string | null;
+  email: string;
+  emailVerified: boolean;
+  phone: string | null;
+  address: string | null;
+  emergencyContactName: string | null;
+  emergencyContactPhone: string | null;
+};

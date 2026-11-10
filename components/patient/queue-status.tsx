@@ -1,31 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { FactCard } from "@/components/patient/patient-shared";
 import { formatPatientDate } from "@/lib/patient-appointments";
 import type { PatientAppointmentView } from "@/lib/schemas/booking";
+import type { PatientQueueStatusResponse } from "@/lib/schemas/queue";
 import { useVisiblePolling } from "@/lib/hooks/use-visible-polling";
 
 export function QueueStatus({ appointment }: { appointment?: PatientAppointmentView }) {
-  const { data, error, loading, refresh } = useVisiblePolling<{
-    entry: { status: string; position: number | null } | null;
-  }>("/api/patient/queue");
+  const { data, error, loading, refresh } =
+    useVisiblePolling<PatientQueueStatusResponse>("/api/patient/queue");
+  // The queued visit can differ from the next appointment initially rendered by the server.
+  const visit = data?.entry ?? appointment;
   return (
     <div className="space-y-5">
       <h2 className="font-semibold">
-        {appointment ? "Your next visit" : "No upcoming appointments"}
+        {data?.entry
+          ? "Your checked-in visit"
+          : appointment
+            ? "Your next visit"
+            : "No upcoming appointments"}
       </h2>
-      {appointment && (
+      {visit && (
         <>
-          <p className="font-semibold">{appointment.doctorName}</p>
+          <p className="font-semibold">{visit.doctorName}</p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <FactCard label="Date" value={formatPatientDate(appointment.date)} />
-            <FactCard
-              label="Appointment number"
-              value={`#${appointment.appointmentNo}`}
-            />
+            <FactCard label="Date" value={formatPatientDate(visit.date)} />
+            <FactCard label="Appointment number" value={`#${visit.appointmentNo}`} />
           </div>
         </>
       )}
@@ -35,7 +37,7 @@ export function QueueStatus({ appointment }: { appointment?: PatientAppointmentV
             Queue status: {data.entry.status.replaceAll("_", " ")}
           </p>
           <p className="mt-1">
-            {data.entry.position === null
+            {data.entry.status === "completed"
               ? "This visit is complete."
               : `Your current position: ${data.entry.position}`}
           </p>
@@ -43,7 +45,7 @@ export function QueueStatus({ appointment }: { appointment?: PatientAppointmentV
       ) : (
         <p className="text-muted-foreground text-sm">
           {loading
-            ? "Checking your queue status…"
+            ? "Checking your queue status..."
             : "Check in at reception when you arrive."}
         </p>
       )}
@@ -56,10 +58,10 @@ export function QueueStatus({ appointment }: { appointment?: PatientAppointmentV
         Refresh now
       </Button>
       <Link
-        href={appointment ? "/patient/appointments" : "/patient/book"}
+        href={visit ? "/patient/appointments" : "/patient/book"}
         className={buttonVariants({ variant: "outline" })}
       >
-        {appointment ? "View appointments" : "Find a doctor"}
+        {visit ? "View appointments" : "Find a doctor"}
       </Link>
     </div>
   );

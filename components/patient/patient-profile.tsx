@@ -1,65 +1,80 @@
 "use client";
+
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { StatusBadge } from "@/components/patient/patient-shared";
-import { demoPeople } from "@/lib/mock/content";
+import type { PatientProfile, PatientProfileUpdate } from "@/lib/schemas/patient-update";
+import { buildPatientProfilePatch, patientContactDraft } from "@/lib/patient-profile";
 
-import { defaultPatientProfile, type PatientProfileData } from "@/lib/mock/patient";
-
-const fields = [
-  { key: "fullName", label: "Full name", type: "text", required: true },
-  { key: "dateOfBirth", label: "Date of birth", type: "date", required: true },
-  { key: "email", label: "Email address", type: "email", required: true },
-  { key: "phone", label: "Phone number", type: "tel", required: true },
-  { key: "emergencyContact", label: "Emergency contact", type: "text", required: false },
-  { key: "address", label: "Residential address", type: "text", required: true },
+const contactFields = [
+  { key: "phone", label: "Phone number", type: "tel", maxLength: 24 },
+  { key: "address", label: "Residential address", type: "text", maxLength: 240 },
+  {
+    key: "emergencyContactName",
+    label: "Emergency contact name",
+    type: "text",
+    maxLength: 120,
+  },
+  {
+    key: "emergencyContactPhone",
+    label: "Emergency contact phone",
+    type: "tel",
+    maxLength: 24,
+  },
 ] as const;
-const genders = ["Female", "Male", "Other", "Prefer not to say"].map((value) => ({
-  value,
-  label: value,
-}));
 
 export function PatientProfileForm({
   profile,
   onSave,
 }: {
-  profile: PatientProfileData;
-  onSave: (profile: PatientProfileData) => Promise<boolean>;
+  profile: PatientProfile;
+  onSave: (changes: PatientProfileUpdate) => Promise<PatientProfile>;
 }) {
-  const [draft, setDraft] = useState(profile);
+  const [draft, setDraft] = useState(() => patientContactDraft(profile));
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState(false);
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setSaved(await onSave(draft));
+    if (pending) return;
+    setError("");
+    setSaved(false);
+    try {
+      const changes = buildPatientProfilePatch(profile, draft);
+      if (!changes) return;
+      setPending(true);
+      const updated = await onSave(changes);
+      setDraft(patientContactDraft(updated));
+      setSaved(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to save your profile.");
+    } finally {
+      setPending(false);
+    }
   }
+
   return (
     <>
       <div className="bg-carely-surface flex items-center gap-4 rounded-xl border p-4">
         <span className="bg-primary grid size-12 shrink-0 place-items-center rounded-full font-bold text-white">
-          {demoPeople.portalPatient.initials}
+          {profile.fullName
+            .split(/\s+/)
+            .filter(Boolean)
+            .map((part) => part[0])
+            .join("")
+            .slice(0, 2)}
         </span>
         <div className="min-w-0">
           <p className="font-bold wrap-break-word">{profile.fullName}</p>
           <p className="text-muted-foreground mt-1 text-xs">
-            Patient ID PT-20481 &middot; Hospital OPD
+            Patient ID {profile.patientNo}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            <StatusBadge
-              tone={profile.email === defaultPatientProfile.email ? "green" : "amber"}
-            >
-              {profile.email === defaultPatientProfile.email
-                ? "Email verified"
-                : "Verification pending"}
+            <StatusBadge tone={profile.emailVerified ? "green" : "amber"}>
+              {profile.emailVerified ? "Email verified" : "Verification pending"}
             </StatusBadge>
-            <StatusBadge>Active record</StatusBadge>
           </div>
         </div>
       </div>
@@ -67,7 +82,8 @@ export function PatientProfileForm({
         <div className="border-b pb-3">
           <h2 className="font-semibold">Personal &amp; contact details</h2>
           <p className="text-muted-foreground mt-1 text-sm">
-            Keep your contact details up to date for your hospital visits.
+            Update your contact details here. Contact reception to correct your personal
+            details.
           </p>
         </div>
         {saved && (
@@ -75,60 +91,75 @@ export function PatientProfileForm({
             role="status"
             className="bg-carely-success-soft text-carely-success rounded-lg p-3 text-sm"
           >
-            Profile saved for this demo visit.
+            Profile saved.
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="text-destructive text-sm">
+            {error}
           </p>
         )}
         <div className="grid gap-4 sm:grid-cols-2">
-          {fields.map((field) => (
+          <Input
+            id="fullName"
+            label="Full name"
+            showLabel
+            value={profile.fullName}
+            readOnly
+          />
+          <Input
+            id="dateOfBirth"
+            label="Date of birth"
+            type="date"
+            showLabel
+            value={profile.dateOfBirth ?? ""}
+            readOnly
+          />
+          <Input
+            id="email"
+            label="Email address"
+            type="email"
+            showLabel
+            value={profile.email}
+            readOnly
+          />
+          <Input
+            id="gender"
+            label="Gender"
+            showLabel
+            value={profile.gender ?? ""}
+            readOnly
+          />
+          {contactFields.map((field) => (
             <Input
               key={field.key}
               id={field.key}
               label={field.label}
-              showLabel
               type={field.type}
-              required={field.required}
+              maxLength={field.maxLength}
+              showLabel
+              disabled={pending}
               value={draft[field.key]}
               onChange={(event) => {
                 setDraft({ ...draft, [field.key]: event.target.value });
                 setSaved(false);
+                setError("");
               }}
             />
           ))}
-          <div className="min-w-0 space-y-1.5">
-            <label htmlFor="gender" className="text-xs font-semibold">
-              Gender
-            </label>
-            <Select
-              items={genders}
-              value={draft.gender}
-              onValueChange={(value) => {
-                if (value) {
-                  setDraft({ ...draft, gender: value });
-                  setSaved(false);
-                }
-              }}
-            >
-              <SelectTrigger id="gender" className="min-w-0">
-                <SelectValue className="truncate" />
-              </SelectTrigger>
-              <SelectContent className="max-w-[calc(100vw-2rem)]">
-                {genders.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
         </div>
         <div className="flex flex-wrap gap-3">
-          <Button type="submit">Save changes</Button>
+          <Button type="submit" disabled={pending}>
+            {pending ? "Saving..." : "Save changes"}
+          </Button>
           <Button
             type="button"
             variant="outline"
+            disabled={pending}
             onClick={() => {
-              setDraft(profile);
+              setDraft(patientContactDraft(profile));
               setSaved(false);
+              setError("");
             }}
           >
             Cancel

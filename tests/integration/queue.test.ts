@@ -7,7 +7,13 @@ import { encounter } from "@/lib/db/schema/encounter";
 import { queueEntry } from "@/lib/db/schema/queue-entry";
 import { appointment } from "@/lib/db/schema/appointment";
 import { user } from "@/lib/db/schema/auth";
-import { createAppointment, createDoctor, createUser } from "../helpers/factories";
+import {
+  createAppointment,
+  createDoctor,
+  createUser,
+  createPatient,
+  createQueueEntry,
+} from "../helpers/factories";
 import type { Database } from "@/lib/db/types";
 
 const config = vi.hoisted(() => ({
@@ -115,8 +121,6 @@ describe.skipIf(!config.adminUrl)("Queue check-in (PostgreSQL)", () => {
       .select()
       .from(appointment)
       .where(eq(appointment.id, booking.id));
-    // Either cancellation wins (no queue row) or check-in wins (appointment stays booked),
-    // but a cancelled appointment can never retain a live queue entry.
     expect(entries.length).toBeLessThanOrEqual(1);
     expect(!(after.status === "cancelled" && entries.length > 0)).toBe(true);
     expect(
@@ -246,5 +250,128 @@ describe.skipIf(!config.adminUrl)("Queue check-in (PostgreSQL)", () => {
         actor: { userId: outsiderUser.id, role: "doctor" },
       })
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("selects an active visit after an earlier completed visit and returns its matching doctor/token", async () => {
+    const owner = await createUser(database);
+    const ownPatient = await createPatient(database, { userId: owner.id });
+    const earlier = await createAppointment(database, { patientId: ownPatient.id });
+    const active = await createAppointment(database, { patientId: ownPatient.id });
+    const otherPatient = await createPatient(database, {
+      fullName: "Private Other Patient",
+    });
+    const aheadBooking = await createAppointment(database, {
+      doctorId: active.doctorId,
+      patientId: otherPatient.id,
+      appointmentNo: 2,
+    });
+    const completedAhead = await createAppointment(database, {
+      doctorId: active.doctorId,
+      appointmentNo: 3,
+    });
+    const now = Date.now();
+    await createQueueEntry(database, {
+      appointmentId: earlier.id,
+      status: "completed",
+      checkedInAt: new Date(now - 90_000),
+    });
+    await createQueueEntry(database, {
+      appointmentId: completedAhead.id,
+      status: "completed",
+      checkedInAt: new Date(now - 60_000),
+    });
+    await createQueueEntry(database, {
+      appointmentId: aheadBooking.id,
+      checkedInAt: new Date(now - 30_000),
+    });
+    const activeEntry = await createQueueEntry(database, {
+      appointmentId: active.id,
+      checkedInAt: new Date(now - 10_000),
+    });
+    const result = await queue.getOwnQueueStatus({ userId: owner.id, role: "patient" });
+    expect(result).toMatchObject({
+      entry: {
+        appointmentId: active.id,
+        appointmentNo: active.appointmentNo,
+        date: active.appointmentDate,
+        status: "waiting",
+        position: 2,
+      },
+    });
+    expect(JSON.stringify(result)).not.toContain(otherPatient.fullName);
+    expect(JSON.stringify(result)).not.toContain(otherPatient.id);
+    await database
+      .update(queueEntry)
+      .set({ status: "completed" })
+      .where(eq(queueEntry.id, activeEntry.id));
+    expect(
+      await queue.getOwnQueueStatus({ userId: owner.id, role: "patient" })
+    ).toMatchObject({ entry: { status: "completed", position: null } });
+    const outsider = await createUser(database);
+    expect(
+      await queue.getOwnQueueStatus({ userId: outsider.id, role: "patient" })
+    ).toEqual({ entry: null });
+  });
+
+  it("persists only the supplied contact field and audits field names without losing other details", async () => {
+    const owner = await createUser(database);
+    const ownPatient = await createPatient(database, {
+      userId: owner.id,
+      fullName: "Stored patient",
+      gender: "Other",
+      phone: "0771111111",
+      address: "Preserved address",
+      emergencyContactName: "Preserved contact",
+      emergencyContactPhone: "0772222222",
+    });
+    const patientService = await import("@/lib/services/patient");
+    const { patientProfileUpdateSchema, receptionistPatientUpdateSchema } =
+      await import("@/lib/schemas/patient-update");
+    const actor = { userId: owner.id, role: "patient" };
+    const updated = await patientService.updateOwnPatientProfile(
+      patientProfileUpdateSchema.parse({ phone: "0773333333" }),
+      actor
+    );
+    expect(updated).toMatchObject({
+      phone: "0773333333",
+      address: "Preserved address",
+      emergencyContactName: "Preserved contact",
+      emergencyContactPhone: "0772222222",
+    });
+    const events = await database
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.entityId, ownPatient.id));
+    expect(events).toHaveLength(1);
+    expect(events[0].metadata).toEqual({ changedFields: ["phone"] });
+    expect(JSON.stringify(events[0].metadata)).not.toContain("0773333333");
+    const profile = await patientService.getOwnPatientProfile(actor);
+    expect(profile).toMatchObject({
+      patientNo: ownPatient.patientNo,
+      email: owner.email,
+      phone: "0773333333",
+      emergencyContactPhone: "0772222222",
+    });
+    const corrected = await patientService.updatePatientByReceptionist(
+      ownPatient.id,
+      receptionistPatientUpdateSchema.parse({ fullName: "Corrected name" }),
+      receptionist
+    );
+    expect(corrected).toMatchObject({
+      fullName: "Corrected name",
+      gender: "Other",
+      phone: "0773333333",
+      address: "Preserved address",
+      emergencyContactPhone: "0772222222",
+    });
+    const cleared = await patientService.updateOwnPatientProfile(
+      patientProfileUpdateSchema.parse({ emergencyContactPhone: null }),
+      actor
+    );
+    expect(cleared).toMatchObject({
+      emergencyContactPhone: null,
+      address: "Preserved address",
+      phone: "0773333333",
+    });
   });
 });

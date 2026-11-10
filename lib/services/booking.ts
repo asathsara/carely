@@ -320,8 +320,19 @@ export async function cancelAppointment(
         return failure("APPOINTMENT_NOT_FOUND", "Appointment not found", 404);
       }
 
-      // Check-in holds this same lock first. Do not cancel a visit once its queue
-      // lifecycle has started, regardless of which request acquired it first.
+      // Lock availability before the appointment, matching booking's lock order.
+      const weekday = new Date(`${target.date}T00:00:00Z`).getUTCDay();
+      const [session] = await tx
+        .select()
+        .from(doctorAvailability)
+        .where(
+          and(
+            eq(doctorAvailability.doctorId, target.doctorId),
+            eq(doctorAvailability.dayOfWeek, weekday)
+          )
+        )
+        .for("update");
+
       const [locked] = await tx
         .select()
         .from(appointment)
@@ -342,7 +353,11 @@ export async function cancelAppointment(
         );
       }
       const now = colomboNow();
-      if (locked.status !== "booked" || target.date < now.date) {
+      if (
+        locked.status !== "booked" ||
+        target.date < now.date ||
+        (target.date === now.date && session && now.time >= session.endTime)
+      ) {
         return failure(
           "APPOINTMENT_CLOSED",
           "This appointment can no longer be cancelled. Please contact reception.",

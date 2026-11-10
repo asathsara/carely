@@ -1,4 +1,4 @@
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { queueActions } from "@/lib/audit/actions/queue";
@@ -14,6 +14,7 @@ import {
   isAllowedQueueTransition,
   type CheckInAppointment,
   type TransitionQueueEntry,
+  type PatientQueueStatusResponse,
 } from "@/lib/schemas/queue";
 import { assertActiveActor, isTreatingDoctor } from "./access-policy";
 import { recordAudit } from "./audit";
@@ -59,8 +60,6 @@ export const checkInAppointment: CheckInAppointment = async (input, tx) => {
       );
     }
 
-    // The unique appointment_id is the idempotency key. The appointment lock means a
-    // concurrent retry sees the same row; no arrival timestamp or token is rewritten.
     const [existing] = await transaction
       .select()
       .from(queueEntry)
@@ -76,8 +75,7 @@ export const checkInAppointment: CheckInAppointment = async (input, tx) => {
       .values({ appointmentId: booking.id, status: "waiting" })
       .returning();
 
-    // Check-in is the one workflow operation that creates the queue row before the
-    // encounter helper can lock the encounter. The appointment lock remains held.
+    // The encounter helper needs the queue row; the appointment lock remains held.
     await getOrCreateEncounter(booking.id, input.actor, transaction);
     await recordAudit(transaction, {
       actorId: input.actor.userId,
@@ -106,8 +104,7 @@ export const transitionQueueEntry: TransitionQueueEntry = async (input, tx) => {
       );
     }
 
-    // Resolve the parent, then lock appointment -> encounter before the conditional
-    // queue update. Callers that already hold these locks reuse this transaction.
+    // Keep the shared lock order: appointment -> encounter -> queue.
     const [reference] = await transaction
       .select({ appointmentId: queueEntry.appointmentId })
       .from(queueEntry)
@@ -243,43 +240,78 @@ export async function getStaffQueue(input: {
   }));
 }
 
-export async function getOwnQueueStatus(actor: { userId: string; role: string }) {
-  await assertActiveActor(actor);
+export async function getOwnQueueStatus(actor: {
+  userId: string;
+  role: string;
+}): Promise<PatientQueueStatusResponse> {
   if (actor.role !== "patient") throw new ServiceError("Forbidden.", 403, "FORBIDDEN");
-  const today = colomboNow().date;
-  const [entry] = await db
-    .select({
-      id: queueEntry.id,
-      status: queueEntry.status,
-      doctorId: appointment.doctorId,
-      checkedInAt: queueEntry.checkedInAt,
-    })
-    .from(queueEntry)
-    .innerJoin(appointment, eq(queueEntry.appointmentId, appointment.id))
-    .innerJoin(patient, eq(appointment.patientId, patient.id))
-    .where(
-      and(
-        eq(patient.userId, actor.userId),
-        eq(appointment.appointmentDate, today),
-        ne(appointment.status, "cancelled")
-      )
-    )
-    .orderBy(asc(queueEntry.checkedInAt), asc(queueEntry.id))
-    .limit(1);
-  if (!entry) return { entry: null };
-  const ahead = await db
-    .select({ id: queueEntry.id })
-    .from(queueEntry)
-    .innerJoin(appointment, eq(queueEntry.appointmentId, appointment.id))
-    .where(
-      and(
-        eq(appointment.doctorId, entry.doctorId),
-        eq(appointment.appointmentDate, today),
-        ne(queueEntry.status, "completed"),
-        ne(appointment.status, "cancelled")
-      )
-    )
-    .orderBy(asc(queueEntry.checkedInAt), asc(queueEntry.id));
-  const index = ahead.findIndex((row) => row.id === entry.id);
-  return { entry: { status: entry.status, position: index === -1 ? null : index + 1 } };
+  // Use one snapshot for visit selection and position: a concurrent completion must
+  // not turn a waiting entry into a misleading "complete" response.
+  return db.transaction(
+    async (tx) => {
+      await assertActiveActor(actor, tx);
+      const today = colomboNow().date;
+      const [entry] = await tx
+        .select({
+          id: queueEntry.id,
+          status: queueEntry.status,
+          doctorId: appointment.doctorId,
+          doctorName: user.name,
+          appointmentId: appointment.id,
+          appointmentNo: appointment.appointmentNo,
+          date: appointment.appointmentDate,
+          checkedInAt: queueEntry.checkedInAt,
+        })
+        .from(queueEntry)
+        .innerJoin(appointment, eq(queueEntry.appointmentId, appointment.id))
+        .innerJoin(patient, eq(appointment.patientId, patient.id))
+        .innerJoin(doctor, eq(appointment.doctorId, doctor.id))
+        .innerJoin(user, eq(doctor.userId, user.id))
+        .where(
+          and(
+            eq(patient.userId, actor.userId),
+            eq(appointment.appointmentDate, today),
+            ne(appointment.status, "cancelled")
+          )
+        )
+        .orderBy(
+          asc(sql`case when ${queueEntry.status} = 'completed' then 1 else 0 end`),
+          asc(queueEntry.checkedInAt),
+          asc(queueEntry.id)
+        )
+        .limit(1);
+      if (!entry) return { entry: null };
+      let position: number | null = null;
+      if (entry.status !== "completed") {
+        const ahead = await tx
+          .select({ id: queueEntry.id })
+          .from(queueEntry)
+          .innerJoin(appointment, eq(queueEntry.appointmentId, appointment.id))
+          .where(
+            and(
+              eq(appointment.doctorId, entry.doctorId),
+              eq(appointment.appointmentDate, today),
+              ne(queueEntry.status, "completed"),
+              ne(appointment.status, "cancelled")
+            )
+          )
+          .orderBy(asc(queueEntry.checkedInAt), asc(queueEntry.id));
+        const index = ahead.findIndex((row) => row.id === entry.id);
+        if (index === -1)
+          throw new ServiceError("Queue entry not found.", 404, "NOT_FOUND");
+        position = index + 1;
+      }
+      return {
+        entry: {
+          status: entry.status,
+          position,
+          appointmentId: entry.appointmentId,
+          doctorName: entry.doctorName,
+          appointmentNo: entry.appointmentNo,
+          date: entry.date,
+        },
+      };
+    },
+    { isolationLevel: "repeatable read", accessMode: "read only" }
+  );
 }
