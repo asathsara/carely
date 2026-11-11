@@ -1,16 +1,3 @@
-import { demoPeople } from "@/lib/mock/content";
-
-export const defaultPatientProfile = {
-  fullName: demoPeople.portalPatient.name,
-  dateOfBirth: "2001-05-18",
-  email: demoPeople.portalPatient.email,
-  phone: "+94 77 123 4567",
-  gender: "Female",
-  address: demoPeople.portalPatient.address,
-  emergencyContact: "Nimal Silva (Father) / +94 71 987 6543",
-};
-export type PatientProfileData = typeof defaultPatientProfile;
-
 export const patientMedicines = [
   {
     code: "AM",

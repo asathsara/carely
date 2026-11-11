@@ -7,6 +7,7 @@ import { doctor } from "@/lib/db/schema/doctor";
 import { doctorAvailability } from "@/lib/db/schema/doctor-availability";
 import { patient } from "@/lib/db/schema/patient";
 import { specialty } from "@/lib/db/schema/specialty";
+import { queueEntry } from "@/lib/db/schema/queue-entry";
 import {
   bookAppointmentSchema,
   openDatesQuerySchema,
@@ -319,7 +320,7 @@ export async function cancelAppointment(
         return failure("APPOINTMENT_NOT_FOUND", "Appointment not found", 404);
       }
 
-      // Match booking's lock order: availability first, then the appointment row.
+      // Lock availability before the appointment, matching booking's lock order.
       const weekday = new Date(`${target.date}T00:00:00Z`).getUTCDay();
       const [session] = await tx
         .select()
@@ -331,6 +332,7 @@ export async function cancelAppointment(
           )
         )
         .for("update");
+
       const [locked] = await tx
         .select()
         .from(appointment)
@@ -338,6 +340,18 @@ export async function cancelAppointment(
         .for("update");
       if (!locked) return failure("APPOINTMENT_NOT_FOUND", "Appointment not found", 404);
       if (locked.status === "cancelled") return { success: true };
+      const [checkedIn] = await tx
+        .select({ id: queueEntry.id })
+        .from(queueEntry)
+        .where(eq(queueEntry.appointmentId, appointmentId))
+        .limit(1);
+      if (checkedIn) {
+        return failure(
+          "APPOINTMENT_CLOSED",
+          "This appointment has already been checked in and cannot be cancelled.",
+          409
+        );
+      }
       const now = colomboNow();
       if (
         locked.status !== "booked" ||

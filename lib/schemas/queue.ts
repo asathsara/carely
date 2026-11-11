@@ -11,6 +11,9 @@ export const queueStatusSchema = z.enum([
 ]);
 export type QueueStatus = z.infer<typeof queueStatusSchema>;
 export const checkInAppointmentSchema = z.object({ appointmentId: z.uuid() }).strict();
+export const queueQuerySchema = z
+  .object({ doctorId: z.uuid(), date: z.string().date() })
+  .strict();
 export const transitionQueueEntrySchema = z
   .object({
     entryId: z.uuid(),
@@ -19,7 +22,6 @@ export const transitionQueueEntrySchema = z
   })
   .strict();
 
-// Teammate 1 implements these contracts in lib/services/queue.ts.
 // Mutations supplied a transaction MUST reuse it, including their audit write.
 export type CheckInAppointment = (
   input: {
@@ -59,3 +61,14 @@ export function isAllowedQueueTransition(
     (from === "with_doctor" && to === "completed" && role === "doctor")
   );
 }
+
+export type PatientQueueStatusResponse = {
+  entry: {
+    status: QueueStatus;
+    position: number | null;
+    appointmentId: string;
+    doctorName: string;
+    appointmentNo: number;
+    date: string;
+  } | null;
+};

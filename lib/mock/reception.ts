@@ -1,37 +1,3 @@
-﻿export type ReceptionPatient = {
-  id: string;
-  name: string;
-  dob: string;
-  phone: string;
-  address: string;
-  lastVisit: string;
-};
-export const receptionPatients: ReceptionPatient[] = [
-  {
-    id: "P-00142",
-    name: "Saman Perera",
-    dob: "1968-05-14",
-    phone: "077 123 4567",
-    address: "Negombo, Sri Lanka",
-    lastVisit: "12 Sep - Cardiology",
-  },
-  {
-    id: "P-00168",
-    name: "Kavindi Silva",
-    dob: "1996-04-20",
-    phone: "077 234 5678",
-    address: "24 Lake Road, Negombo",
-    lastVisit: "05 Sep - Cardiology",
-  },
-  {
-    id: "P-00155",
-    name: "Ananda Fernando",
-    dob: "1979-02-10",
-    phone: "077 345 6789",
-    address: "Negombo, Sri Lanka",
-    lastVisit: "12 Sep - General Medicine",
-  },
-];
 export type ReceptionDoctor = {
   id: string;
   name: string;
