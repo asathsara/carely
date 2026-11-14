@@ -174,3 +174,5 @@ pnpm exec vitest run tests/integration/consultation.test.ts --configLoader nativ
 
 Perform the final cross-track workflow verification (SCRUM-191) after the required
 branches merge and a dedicated PostgreSQL test database is configured.
+The [SCRUM-191 verification report](verification/scrum-191.md) records the completed
+519-test run with PostgreSQL and the remaining cross-track/browser checks.

@@ -69,3 +69,7 @@ Task 6 checks: 436 tests passed and 82 PostgreSQL tests were skipped because tes
 credentials are not configured. TypeScript, targeted ESLint and the production
 build passed. Next.js 16.4.0 reported a known-vulnerability warning and recommended
 a security upgrade. Dependency versions were not changed by the UI implementation.
+
+Subsequent [SCRUM-191 verification](verification/scrum-191.md) ran the full suite
+against isolated PostgreSQL: 519 tests passed with none skipped. The report
+distinguishes that automated evidence from the pending cross-track browser checks.
