@@ -19,26 +19,38 @@ const reservedMeasurementKeys = new Set([
   "heightcm",
 ]);
 
-const additionalMeasurementsSchema = z
-  .record(
-    z
-      .string()
-      .max(40)
-      .regex(/^[A-Za-z][A-Za-z0-9_]*$/)
-      .refine(
-        (key) => !reservedMeasurementKeys.has(key.replaceAll("_", "").toLowerCase()),
-        "Use a supported additional measurement key."
-      ),
-    z.union([z.number(), z.string().trim().min(1).max(200), z.boolean(), z.null()])
-  )
-  .refine(
-    (value) => Object.keys(value).length <= 20,
-    "Use at most 20 extra measurements."
-  )
-  .refine(
-    (value) => new TextEncoder().encode(JSON.stringify(value)).byteLength <= 4096,
-    "Additional measurements must not exceed 4096 bytes."
-  );
+const additionalMeasurementsSchema = z.preprocess(
+  (value, context) => {
+    if (value && typeof value === "object" && Object.hasOwn(value, "__proto__")) {
+      context.addIssue({
+        code: "custom",
+        message: "Use a supported additional measurement key.",
+      });
+      return z.NEVER;
+    }
+    return value;
+  },
+  z
+    .record(
+      z
+        .string()
+        .max(40)
+        .regex(/^[A-Za-z][A-Za-z0-9_]*$/)
+        .refine(
+          (key) => !reservedMeasurementKeys.has(key.replaceAll("_", "").toLowerCase()),
+          "Use a supported additional measurement key."
+        ),
+      z.union([z.number(), z.string().trim().min(1).max(200), z.boolean(), z.null()])
+    )
+    .refine(
+      (value) => Object.keys(value).length <= 20,
+      "Use at most 20 extra measurements."
+    )
+    .refine(
+      (value) => new TextEncoder().encode(JSON.stringify(value)).byteLength <= 4096,
+      "Additional measurements must not exceed 4096 bytes."
+    )
+);
 
 // Input limits for the prototype, not normal ranges or clinical recommendations.
 export const intakeVitalsSchema = z
@@ -120,3 +132,5 @@ export type NurseQueueEntry = {
 };
 
 export type NurseQueueResponse = { entries: NurseQueueEntry[] };
+
+export type NurseIntakeReceipt = { encounterId: string; recordedAt: string };

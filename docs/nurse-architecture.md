@@ -1,66 +1,71 @@
-# Nurse UI and planned data integration
+# Nurse intake interface
 
-## Current UI structure
+The nurse workspace now uses the PostgreSQL-backed intake APIs rather than a
+temporary provider or fixture records. The signed-in nurse's actual name appears
+in the application shell, and the layout redirects other roles to their own
+workspaces.
 
-The nurse pages are client components for the UI prototype. They compose shared controls and focused nurse components; there is no database fetching or server action for nurse records yet.
+## Selection and saving
 
-```text
-app/(authenticated)/nurse/
-  layout.tsx                    # Shared AppShell and temporary provider
-  page.tsx                      # Redirect to /nurse/vitals
-  vitals/page.tsx                # Record Vitals layout
-  preliminary-records/page.tsx   # Preliminary Records layout
+`/nurse/vitals?encounterId=<UUID>` identifies the selected visit. The server loads
+today's authorized waiting queue, and the client refreshes it with the existing
+visibility-aware polling hook. Search matches patient name, patient number or
+appointment number. Selection is restored on reload while the visit is still
+waiting. Clinical drafts stay only in the form; no draft data is placed in browser
+storage or URL parameters. Changing the selected patient prompts before discarding
+unsaved changes. Closing/reloading the tab or following an application link also
+warns about unsaved input.
 
-components/nurse/
-  vitals-form.tsx                # Measurements and demo save feedback
-  preliminary-form.tsx          # Complaint, observations and demo save feedback
-  patient-visit-picker.tsx       # Patient lookup and visit selection
-  patient-context.tsx           # Condition, allergies and last-saved information
-  nurse-workspace-provider.tsx  # TEMPORARY: selection and in-memory demo saves
+Vitals and preliminary records are sections of one form, because intake saving
+and handoff must be atomic. The previous preliminary-records URL redirects to
+the preliminary section of this form, preserving an encounter selection. The
+nurse navigation has one Nurse Intake entry.
 
-lib/mock/
-  nurse.ts                      # Demo patient and visit fixtures
-```
+Numeric fields convert to typed values and pass through the same Zod contract
+as the server. Optional additional measurements have bounded name/value rows.
+Both initial complaint and nursing observations are required. Validation messages
+use form labels, and an API failure retains the current draft whenever the visit
+remains in the waiting queue. Pending saves and selection changes disable the form
+and selector. A ref prevents simultaneous submits.
 
-## Temporary provider
+Saving sends one `POST /api/encounters/:id/intake`. The server writes vitals and
+preliminary notes, records authors/timestamps, advances the queue and writes audit
+events in one transaction. On success, the form closes and the URL becomes
+`/nurse/vitals?receipt=<encounter UUID>`.
 
-`NurseWorkspaceProvider` preserves the selected patient, selected visit, and demo saves when navigating between the two nurse screens. Records are kept only in React memory. A full page reload clears saves; they are not written to a database or browser storage.
+## Access after handoff
 
-This is temporary support for the interactive prototype, not the intended persistence architecture.
+The owner selected **waiting-only nurse access with a saved confirmation** for
+this implementation. This replaces the earlier prototype plan for nurses to
+reopen saved clinical values after handoff.
 
-## Planned structure after data integration
+The server verifies a receipt using the current nurse's `intake.recorded` audit
+event and today's appointment date. The receipt returns only the encounter ID
+and recording timestamp. It exposes neither patient details nor clinical values,
+doctor notes, prescriptions or general audit history. Another nurse's receipt
+and a receipt for another date return 404. A forged query parameter cannot make
+the page claim a successful save. Confirmation remains available after reload
+on the appointment date.
 
-The following files and server responsibilities are planned, not implemented by the UI reorganization:
+The old provider, its wrapper, dependent `VisitRecord` types and nurse fixture
+file were removed. Request, queue and receipt types live in `lib/schemas/intake.ts`.
+All current nurse screens are free of mock patients, diagnoses and allergy fields.
 
-```text
-app/(authenticated)/nurse/
-  layout.tsx                    # Shared shell; provider removed
-  page.tsx                      # Default nurse entry
-  vitals/page.tsx                # Server page: fetch visit data and compose UI
-  preliminary-records/page.tsx   # Server page: fetch visit data and compose UI
+## Main files
 
-components/nurse/
-  vitals-form.tsx                # Client form
-  preliminary-form.tsx          # Client form
-  patient-visit-picker.tsx       # Client search and selection
-  patient-context.tsx           # Display fetched patient information
+- `components/nurse/intake-workspace.tsx`: selection, draft, submission and receipt UI.
+- `components/nurse/vitals-form.tsx`: typed measurements and optional extra rows.
+- `components/nurse/preliminary-form.tsx`: complaint and observations fields.
+- `components/nurse/patient-context.tsx`: current waiting visit context.
+- `lib/intake-form.ts`: form conversion and shared validation messages.
+- `lib/services/intake.ts`: waiting queue, own-action receipt and atomic save.
 
-lib/
-  data/nurse.ts                 # Server-only database reads
-  actions/nurse.ts              # Authorized, validated server-side saves
-  schemas/nurse.ts              # Input validation
-  mock/nurse.ts                 # Demo fixtures only where still needed
-```
+See [Nurse intake APIs](nurse-intake.md) for the input contract and database test
+requirements. Frontend unit coverage verifies form conversion, selection reload,
+receipt verification and rendered states. A browser/database walkthrough remains
+part of SCRUM-191.
 
-## Provider removal conditions
-
-Remove `nurse-workspace-provider.tsx`, its layout wrapper, and `useNurseWorkspace` consumers once all of the following are implemented:
-
-- The URL identifies the selected patient and visit, and refresh or navigation restores the selection.
-- Server-side reads load patient context and saved records for that visit.
-- Authenticated and authorized server-side writes persist vitals and preliminary records, with validation and success/error feedback.
-- Forms keep unsaved inputs, validation errors, and save status in local state, and display refreshed saved data after a successful write.
-
-Move the shared record types to the data/schema layer before deleting the provider. The forms currently import `VisitRecord` from that file.
-
-The migration is complete when selection survives a reload, saves remain available after a reload, and navigating between both nurse screens no longer requires the provider. Do not remove it before its current responsibilities have replacements.
+Task 6 checks: 436 tests passed and 82 PostgreSQL tests were skipped because test
+credentials are not configured. TypeScript, targeted ESLint and the production
+build passed. Next.js 16.4.0 reported a known-vulnerability warning and recommended
+a security upgrade. Dependency versions were not changed by the UI implementation.

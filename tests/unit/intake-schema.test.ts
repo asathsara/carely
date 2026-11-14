@@ -103,6 +103,7 @@ describe("Intake input contract", () => {
     { ["x".repeat(41)]: 5 },
     { "invalid key": 5 },
     { constructor: "unsupported" },
+    Object.fromEntries([["__proto__", "unsupported"]]),
     { NIC: "unsupported" },
     { allergies: "unsupported" },
     { heartRate: -500 },

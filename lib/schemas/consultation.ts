@@ -22,3 +22,14 @@ export type CompletedConsultation = {
 };
 
 export type CompleteConsultationResponse = { consultation: CompletedConsultation };
+
+export type DoctorConsultationEntry = {
+  queueEntryId: string;
+  encounterId: string;
+  appointmentNo: number;
+  status: "waiting" | "intake_done" | "with_doctor" | "completed";
+  checkedInAt: string;
+  hasClinicalNote: boolean;
+  patient: { id: string; patientNo: string; fullName: string };
+};
+export type DoctorConsultationQueueResponse = { entries: DoctorConsultationEntry[] };

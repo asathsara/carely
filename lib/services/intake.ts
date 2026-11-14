@@ -8,6 +8,7 @@ import { patient } from "@/lib/db/schema/patient";
 import { queueEntry } from "@/lib/db/schema/queue-entry";
 import { vitals } from "@/lib/db/schema/vitals";
 import { preliminaryNote } from "@/lib/db/schema/preliminary-note";
+import { auditLog } from "@/lib/db/schema/audit-log";
 import { intakeActions } from "@/lib/audit/actions/intake";
 import { colomboNow } from "@/lib/clinic-time";
 import {
@@ -16,6 +17,7 @@ import {
   type NurseQueueEntry,
   type RecordedIntake,
   type RecordIntakeInput,
+  type NurseIntakeReceipt,
 } from "@/lib/schemas/intake";
 import { assertActiveActor, type Actor } from "./access-policy";
 import { assertEncounterWritable } from "./encounter";
@@ -70,6 +72,38 @@ export async function getNurseQueue(actor: Actor): Promise<NurseQueueEntry[]> {
     doctorName: row.doctorName,
     patient: { id: row.patientId, patientNo: row.patientNo, fullName: row.patientName },
   }));
+}
+
+// Own-action confirmation only: no post-handoff clinical or patient data is returned.
+export async function getNurseIntakeReceipt(
+  encounterId: string,
+  actor: Actor
+): Promise<NurseIntakeReceipt> {
+  if (actor.role !== "nurse") throw new ServiceError("Forbidden.", 403, "FORBIDDEN");
+  if (!intakeEncounterParamsSchema.safeParse({ id: encounterId }).success) {
+    throw new ServiceError("Invalid encounter identifier.", 400, "INVALID_ID");
+  }
+  await assertActiveActor(actor);
+  const [event] = await db
+    .select({ recordedAt: auditLog.createdAt })
+    .from(encounter)
+    .innerJoin(appointment, eq(encounter.appointmentId, appointment.id))
+    .innerJoin(
+      auditLog,
+      and(eq(auditLog.entityId, encounterId), eq(auditLog.entityType, "encounter"))
+    )
+    .where(
+      and(
+        eq(encounter.id, encounterId),
+        eq(appointment.appointmentDate, colomboNow().date),
+        eq(auditLog.userId, actor.userId),
+        eq(auditLog.action, intakeActions.recorded)
+      )
+    )
+    .limit(1);
+  if (!event)
+    throw new ServiceError("Saved confirmation is unavailable.", 404, "NOT_FOUND");
+  return { encounterId, recordedAt: event.recordedAt.toISOString() };
 }
 
 export async function recordIntake(input: {

@@ -1,9 +1,11 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { appointment } from "@/lib/db/schema/appointment";
 import { encounter } from "@/lib/db/schema/encounter";
 import { queueEntry } from "@/lib/db/schema/queue-entry";
 import { clinicalNote } from "@/lib/db/schema/clinical-note";
+import { doctor } from "@/lib/db/schema/doctor";
+import { patient } from "@/lib/db/schema/patient";
 import { consultationActions } from "@/lib/audit/actions/consultation";
 import { colomboNow } from "@/lib/clinic-time";
 import {
@@ -11,12 +13,56 @@ import {
   completeConsultationParamsSchema,
   type OpenedConsultation,
   type CompletedConsultation,
+  type DoctorConsultationEntry,
 } from "@/lib/schemas/consultation";
 import { assertActiveActor, isTreatingDoctor, type Actor } from "./access-policy";
 import { recordAudit } from "./audit";
 import { transitionQueueEntry } from "./queue";
 import { assertEncounterWritable } from "./encounter";
 import { ServiceError } from "./service-error";
+
+export async function getDoctorConsultationQueue(
+  actor: Actor
+): Promise<DoctorConsultationEntry[]> {
+  if (actor.role !== "doctor") throw new ServiceError("Forbidden.", 403, "FORBIDDEN");
+  await assertActiveActor(actor);
+  const [profile] = await db
+    .select({ id: doctor.id })
+    .from(doctor)
+    .where(and(eq(doctor.userId, actor.userId), eq(doctor.isActive, true)))
+    .limit(1);
+  if (!profile)
+    throw new ServiceError("Doctor profile is unavailable.", 404, "NOT_FOUND");
+  const rows = await db
+    .select({
+      queueEntryId: queueEntry.id,
+      encounterId: encounter.id,
+      appointmentNo: appointment.appointmentNo,
+      status: queueEntry.status,
+      checkedInAt: queueEntry.checkedInAt,
+      hasClinicalNote: sql<boolean>`exists (select 1 from ${clinicalNote} where ${clinicalNote.encounterId} = ${encounter.id})`,
+      patientId: patient.id,
+      patientNo: patient.patientNo,
+      patientName: patient.fullName,
+    })
+    .from(queueEntry)
+    .innerJoin(appointment, eq(queueEntry.appointmentId, appointment.id))
+    .innerJoin(encounter, eq(encounter.appointmentId, appointment.id))
+    .innerJoin(patient, eq(patient.id, appointment.patientId))
+    .where(
+      and(
+        eq(appointment.doctorId, profile.id),
+        eq(appointment.appointmentDate, colomboNow().date),
+        eq(appointment.status, "booked")
+      )
+    )
+    .orderBy(asc(queueEntry.checkedInAt), asc(queueEntry.id));
+  return rows.map(({ patientId, patientNo, patientName, checkedInAt, ...row }) => ({
+    ...row,
+    checkedInAt: checkedInAt.toISOString(),
+    patient: { id: patientId, patientNo, fullName: patientName },
+  }));
+}
 
 export async function openConsultation(input: {
   entryId: string;

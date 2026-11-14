@@ -392,6 +392,29 @@ describe.skipIf(!config.adminUrl)("Nurse intake (PostgreSQL)", () => {
     });
   });
 
+  it("provides only today's own save confirmation after handoff", async () => {
+    const { visit, booking } = await waitingVisit();
+    await intake.recordIntake({
+      encounterId: visit.id,
+      intake: intakeInput,
+      actor: nurse,
+    });
+    const receipt = await intake.getNurseIntakeReceipt(visit.id, nurse);
+    expect(Object.keys(receipt).sort()).toEqual(["encounterId", "recordedAt"]);
+    expect(receipt.encounterId).toBe(visit.id);
+    const other = await createUser(database, { role: "nurse" });
+    await expect(
+      intake.getNurseIntakeReceipt(visit.id, { userId: other.id, role: "nurse" })
+    ).rejects.toMatchObject({ statusCode: 404 });
+    await database
+      .update(appointment)
+      .set({ appointmentDate: "2000-01-01" })
+      .where(eq(appointment.id, booking.id));
+    await expect(intake.getNurseIntakeReceipt(visit.id, nurse)).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+
   it("rolls back records, handoff and queue audit when the intake audit insert fails", async () => {
     const { visit, entry } = await waitingVisit();
     // Fault injection is installed only in this suite's isolated database.

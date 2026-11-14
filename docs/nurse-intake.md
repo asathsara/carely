@@ -118,5 +118,6 @@ pnpm exec vitest run tests/integration/intake.test.ts --configLoader native --no
 ## Next task
 
 The treating doctor's open and complete actions are implemented; see
-[Consultation API](consultation.md). The next task is UI wiring; the existing nurse
-prototype still uses its temporary provider and demo saves.
+[Consultation API](consultation.md). The nurse UI is now connected; see
+[Nurse intake interface](nurse-architecture.md). The remaining cross-track task is
+SCRUM-191 workflow verification after the clinical-record branch merges.

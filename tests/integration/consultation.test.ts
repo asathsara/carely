@@ -11,7 +11,13 @@ import { auditLog } from "@/lib/db/schema/audit-log";
 import { clinicalNote } from "@/lib/db/schema/clinical-note";
 import { prescription } from "@/lib/db/schema/prescription";
 import type { Database } from "@/lib/db/types";
-import { createEncounter, createQueuedVisit, createUser } from "../helpers/factories";
+import {
+  createAppointment,
+  createQueueEntry,
+  createEncounter,
+  createQueuedVisit,
+  createUser,
+} from "../helpers/factories";
 
 const config = vi.hoisted(() => ({
   adminUrl:
@@ -108,6 +114,42 @@ describe.skipIf(!config.adminUrl)("Consultations (PostgreSQL)", () => {
         )
       );
   }
+
+  it("lists only the session doctor's visits today and reports the same-visit note prerequisite", async () => {
+    const fixture = await readyVisit();
+    const other = await readyVisit();
+    for (const overrides of [
+      { appointmentDate: "2099-01-01" },
+      { appointmentDate: "2000-01-01" },
+      { status: "cancelled" },
+    ]) {
+      const booking = await createAppointment(database, {
+        doctorId: fixture.doctor.id,
+        appointmentNo: 2,
+        ...overrides,
+      });
+      await createQueueEntry(database, { appointmentId: booking.id });
+      await createEncounter(database, { appointmentId: booking.id });
+    }
+    const entries = await consultation.getDoctorConsultationQueue(fixture.actor);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      queueEntryId: fixture.queue.id,
+      encounterId: fixture.visit.id,
+      hasClinicalNote: false,
+    });
+    expect(entries.some((entry) => entry.queueEntryId === other.queue.id)).toBe(false);
+    await database
+      .insert(clinicalNote)
+      .values({
+        encounterId: fixture.visit.id,
+        authorId: fixture.actor.userId,
+        content: "Private note content.",
+      });
+    const updated = await consultation.getDoctorConsultationQueue(fixture.actor);
+    expect(updated[0].hasClinicalNote).toBe(true);
+    expect(JSON.stringify(updated)).not.toContain("Private note content.");
+  });
 
   it("opens after real nurse intake, recording called_at and both opening events", async () => {
     const fixture = await readyVisit("waiting");
@@ -582,13 +624,11 @@ describe.skipIf(!config.adminUrl)("Consultations (PostgreSQL)", () => {
       await expect(
         database.transaction(async (tx) => {
           await assertEncounterWritable(fixture.visit.id, actor, tx);
-          await tx
-            .insert(clinicalNote)
-            .values({
-              encounterId: fixture.visit.id,
-              authorId: actor.userId,
-              content: "Late note.",
-            });
+          await tx.insert(clinicalNote).values({
+            encounterId: fixture.visit.id,
+            authorId: actor.userId,
+            content: "Late note.",
+          });
         })
       ).rejects.toMatchObject({ statusCode: 409, code: "ENCOUNTER_COMPLETED" });
     }
@@ -646,13 +686,11 @@ describe.skipIf(!config.adminUrl)("Consultations (PostgreSQL)", () => {
         database.transaction(async (tx) => {
           await tx.execute(sql`SET LOCAL lock_timeout = '200ms'`);
           await assertEncounterWritable(fixture.visit.id, fixture.actor, tx);
-          await tx
-            .insert(clinicalNote)
-            .values({
-              encounterId: fixture.visit.id,
-              authorId: fixture.actor.userId,
-              content: "Racing note.",
-            });
+          await tx.insert(clinicalNote).values({
+            encounterId: fixture.visit.id,
+            authorId: fixture.actor.userId,
+            content: "Racing note.",
+          });
         })
       ).rejects.toMatchObject({ cause: { code: "55P03" } });
     } finally {

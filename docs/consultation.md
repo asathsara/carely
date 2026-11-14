@@ -110,7 +110,43 @@ After commit, `assertEncounterWritable` rejects further intake, clinical-note
 and prescription writes with 409. Teammate 3's writers must call that helper
 inside their own transactions for this guarantee to hold.
 
-## Verification
+## Connected doctor controls
+
+The `/doctor` dashboard now renders the live consultation queue. It polls
+`GET /api/doctor/queue`, which derives the active doctor profile from the session
+and returns only that doctor's booked, checked-in visits dated today. Rows include
+encounter and queue IDs, patient identification, queue status and a boolean for
+whether a clinical note exists. Note text is not returned by this endpoint.
+
+The dashboard offers opening only in `intake_done` and completion only in
+`with_doctor`. Completion stays disabled until a clinical note exists. State
+changes call the open/complete APIs above, disable controls while pending and
+refresh the queue on success or failure. Polling errors disable actions until a
+fresh read succeeds. Waiting and completed entries have no transition controls.
+
+Doctor clinical-note creation and patient/history review remain owned by
+Teammate 3. Their existing prototype screens have not been connected by this
+change. The queue controls do not fabricate notes to bypass the completion rule.
+
+## UI verification
+
+```powershell
+pnpm exec vitest run tests/unit/intake-form.test.ts tests/unit/workspace-read-services.test.ts tests/unit/doctor-queue-route.test.ts tests/unit/nurse-intake-page.test.ts tests/unit/clinical-workspace-render.test.ts --configLoader native --no-cache --no-fsModuleCache
+```
+
+The database suite also checks doctor-queue isolation and note-existence updates.
+The following browser walkthrough remains for SCRUM-191 with a configured test
+deployment and Teammate 3's clinical-record work:
+
+- Check in today's appointment through reception.
+- Select it from Nurse Intake; verify the selection survives a reload.
+- Verify invalid measurements do not submit and changing patients warns about drafts.
+- Save both intake sections; reload the server-verified confirmation.
+- Open the visit from the assigned doctor's dashboard.
+- Create a clinical note through Teammate 3's feature, refresh the queue, then complete.
+- Verify duplicate actions, wrong roles, unrelated doctors and writes after completion fail.
+
+## API and database verification
 
 ```powershell
 pnpm exec vitest run tests/unit/consultation-open-route.test.ts tests/unit/consultation-open-service.test.ts --configLoader native --no-cache --no-fsModuleCache
@@ -136,6 +172,5 @@ pnpm exec vitest run tests/integration/consultation.test.ts --configLoader nativ
 
 ## Next task
 
-Connect the nurse and doctor interfaces to the implemented APIs (Task 6),
-coordinating doctor note/review components with Teammate 3. Then perform the final
-cross-track workflow verification after the required branches merge.
+Perform the final cross-track workflow verification (SCRUM-191) after the required
+branches merge and a dedicated PostgreSQL test database is configured.
