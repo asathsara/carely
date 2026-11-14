@@ -7,7 +7,6 @@ import {
   ClipboardPlus,
   LayoutDashboard,
   ListOrdered,
-  NotebookPen,
   PackageOpen,
   PackageSearch,
   Pill,
@@ -36,15 +35,7 @@ export const roleNavigation: Record<string, NavItem[]> = {
     { label: "Clinical Notes", href: "/doctor/notes", icon: ClipboardPenLine },
     { label: "Availability", href: "/doctor/availability", icon: CalendarClock },
   ],
-  nurse: [
-    { label: "Record Vitals", href: "/nurse/vitals", icon: ClipboardPlus },
-
-    {
-      label: "Preliminary Records",
-      href: "/nurse/preliminary-records",
-      icon: NotebookPen,
-    },
-  ],
+  nurse: [{ label: "Nurse Intake", href: "/nurse/vitals", icon: ClipboardPlus }],
   reception: [
     { label: "Walk-in Registration", href: "/reception/register", icon: UserPlus },
     { label: "On-site Channeling", href: "/reception/channeling", icon: CalendarPlus },
