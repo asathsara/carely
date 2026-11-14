@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { DoctorNotes } from "@/components/workspace/doctor-content";
+import { ClinicalRecordWorkspace } from "@/components/doctor/clinical-record-workspace";
 
 export const metadata: Metadata = { title: "Clinical Notes" };
 export const instant = false;
 
 export default function DoctorNotesPage() {
-  return <DoctorNotes />;
+  return <ClinicalRecordWorkspace />;
 }
