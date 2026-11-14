@@ -117,7 +117,6 @@ pnpm exec vitest run tests/integration/intake.test.ts --configLoader native --no
 
 ## Next task
 
-The treating doctor's open-consultation action is implemented; see
-[Consultation API](consultation.md). The next backend task is consultation
-completion (SCRUM-144). Nurse UI wiring remains a later task; the existing nurse
+The treating doctor's open and complete actions are implemented; see
+[Consultation API](consultation.md). The next task is UI wiring; the existing nurse
 prototype still uses its temporary provider and demo saves.

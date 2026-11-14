@@ -1,17 +1,21 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { appointment } from "@/lib/db/schema/appointment";
 import { encounter } from "@/lib/db/schema/encounter";
 import { queueEntry } from "@/lib/db/schema/queue-entry";
+import { clinicalNote } from "@/lib/db/schema/clinical-note";
 import { consultationActions } from "@/lib/audit/actions/consultation";
 import { colomboNow } from "@/lib/clinic-time";
 import {
   openConsultationParamsSchema,
+  completeConsultationParamsSchema,
   type OpenedConsultation,
+  type CompletedConsultation,
 } from "@/lib/schemas/consultation";
 import { assertActiveActor, isTreatingDoctor, type Actor } from "./access-policy";
 import { recordAudit } from "./audit";
 import { transitionQueueEntry } from "./queue";
+import { assertEncounterWritable } from "./encounter";
 import { ServiceError } from "./service-error";
 
 export async function openConsultation(input: {
@@ -97,6 +101,84 @@ export async function openConsultation(input: {
       queueEntryId: opened.id,
       status: "with_doctor",
       calledAt: opened.calledAt.toISOString(),
+    };
+  });
+}
+
+export async function completeConsultation(input: {
+  encounterId: string;
+  actor: Actor;
+}): Promise<CompletedConsultation> {
+  if (input.actor.role !== "doctor") {
+    throw new ServiceError("Only doctors can complete consultations.", 403, "FORBIDDEN");
+  }
+  if (!completeConsultationParamsSchema.safeParse({ id: input.encounterId }).success) {
+    throw new ServiceError("Invalid encounter identifier.", 400, "INVALID_ID");
+  }
+
+  return db.transaction(async (tx) => {
+    // Holds appointment -> encounter locks, shared with all clinical writers.
+    const visit = await assertEncounterWritable(input.encounterId, input.actor, tx);
+    const [entry] = await tx
+      .select({ id: queueEntry.id })
+      .from(queueEntry)
+      .where(eq(queueEntry.appointmentId, visit.appointmentId))
+      .limit(1);
+    if (!entry) {
+      throw new ServiceError(
+        "The visit is not with the doctor.",
+        409,
+        "INVALID_WORKFLOW_STATE"
+      );
+    }
+    const [note] = await tx
+      .select({ id: clinicalNote.id })
+      .from(clinicalNote)
+      .where(eq(clinicalNote.encounterId, visit.id))
+      .limit(1);
+    if (!note) {
+      throw new ServiceError(
+        "Record a clinical note before completing the consultation.",
+        409,
+        "CLINICAL_NOTE_REQUIRED"
+      );
+    }
+
+    const endedAt = new Date();
+    const [completed] = await tx
+      .update(encounter)
+      .set({ status: "completed", endedAt })
+      .where(
+        and(
+          eq(encounter.id, visit.id),
+          eq(encounter.status, "in_progress"),
+          isNull(encounter.endedAt)
+        )
+      )
+      .returning({ id: encounter.id });
+    if (!completed) {
+      throw new ServiceError(
+        "The encounter has changed state.",
+        409,
+        "ENCOUNTER_STATE_CONFLICT"
+      );
+    }
+    await transitionQueueEntry(
+      { entryId: entry.id, from: "with_doctor", to: "completed", actor: input.actor },
+      tx
+    );
+    await recordAudit(tx, {
+      actorId: input.actor.userId,
+      action: consultationActions.completed,
+      targetType: "encounter",
+      targetId: visit.id,
+      metadata: { fromStatus: "with_doctor", toStatus: "completed" },
+    });
+    return {
+      encounterId: visit.id,
+      queueEntryId: entry.id,
+      status: "completed",
+      endedAt: endedAt.toISOString(),
     };
   });
 }
