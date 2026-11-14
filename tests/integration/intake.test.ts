@@ -1,10 +1,16 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { user } from "@/lib/db/schema/auth";
+import { appointment } from "@/lib/db/schema/appointment";
+import { queueEntry } from "@/lib/db/schema/queue-entry";
+import { vitals } from "@/lib/db/schema/vitals";
+import { preliminaryNote } from "@/lib/db/schema/preliminary-note";
+import { auditLog } from "@/lib/db/schema/audit-log";
 import type { Database } from "@/lib/db/types";
 import type { Actor } from "@/lib/services/access-policy";
+import type { RecordIntakeInput } from "@/lib/schemas/intake";
 import {
   createAppointment,
   createEncounter,
@@ -28,12 +34,51 @@ vi.mock("@/lib/db", async () => {
   return { db: drizzle(conn), conn };
 });
 
-describe.skipIf(!config.adminUrl)("Nurse intake queue (PostgreSQL)", () => {
+describe.skipIf(!config.adminUrl)("Nurse intake (PostgreSQL)", () => {
   let admin: postgres.Sql;
   let connection: postgres.Sql;
   let database: Database;
   let intake: typeof import("@/lib/services/intake");
   let nurse: Actor;
+  const intakeInput: RecordIntakeInput = {
+    vitals: {
+      bpSystolic: 128,
+      bpDiastolic: 82,
+      heartRate: 82,
+      respiratoryRate: 18,
+      temperatureC: 36.9,
+      spo2: 97,
+      weightKg: 68.3,
+      heightCm: 170.5,
+      additional: { glucose: 5.4, fasting: false },
+    },
+    complaint: "Private initial complaint.",
+    preliminaryNote: "Private preliminary observations.",
+  };
+
+  async function waitingVisit() {
+    const booking = await createAppointment(database, { appointmentNo: 9 });
+    const entry = await createQueueEntry(database, { appointmentId: booking.id });
+    const visit = await createEncounter(database, { appointmentId: booking.id });
+    return { booking, entry, visit };
+  }
+
+  async function savedRecords(encounterId: string) {
+    const [measurements, notes, events] = await Promise.all([
+      database.select().from(vitals).where(eq(vitals.encounterId, encounterId)),
+      database
+        .select()
+        .from(preliminaryNote)
+        .where(eq(preliminaryNote.encounterId, encounterId)),
+      database
+        .select()
+        .from(auditLog)
+        .where(
+          and(eq(auditLog.entityId, encounterId), eq(auditLog.action, "intake.recorded"))
+        ),
+    ]);
+    return { measurements, notes, events };
+  }
 
   beforeAll(async () => {
     admin = postgres(config.adminUrl!, { max: 1, connect_timeout: 5 });
@@ -156,5 +201,236 @@ describe.skipIf(!config.adminUrl)("Nurse intake queue (PostgreSQL)", () => {
       statusCode: 403,
       code: "ACCOUNT_UNAVAILABLE",
     });
+  });
+
+  it("persists authored intake and both audit events with the handoff, preserving tokens", async () => {
+    const { booking, entry, visit } = await waitingVisit();
+    const result = await intake.recordIntake({
+      encounterId: visit.id,
+      intake: intakeInput,
+      actor: nurse,
+    });
+    const saved = await savedRecords(visit.id);
+    expect(saved.measurements).toHaveLength(1);
+    expect(saved.measurements[0]).toMatchObject({
+      id: result.vitalsId,
+      encounterId: visit.id,
+      recordedBy: nurse.userId,
+      bpSystolic: 128,
+      bpDiastolic: 82,
+      temperatureC: "36.9",
+      weightKg: "68.3",
+      heightCm: "170.5",
+      additional: intakeInput.vitals.additional,
+      recordedAt: new Date(result.recordedAt),
+    });
+    expect(saved.notes).toHaveLength(1);
+    expect(saved.notes[0]).toMatchObject({
+      id: result.preliminaryNoteId,
+      encounterId: visit.id,
+      authorId: nurse.userId,
+      content: `Initial complaint:\n${intakeInput.complaint}\n\nPreliminary note:\n${intakeInput.preliminaryNote}`,
+      createdAt: new Date(result.recordedAt),
+    });
+    expect(saved.events).toMatchObject([
+      {
+        userId: nurse.userId,
+        action: "intake.recorded",
+        entityType: "encounter",
+        entityId: visit.id,
+        metadata: {},
+      },
+    ]);
+    expect(
+      await database.select().from(queueEntry).where(eq(queueEntry.id, entry.id))
+    ).toMatchObject([{ status: "intake_done", checkedInAt: entry.checkedInAt }]);
+    expect(
+      await database.select().from(auditLog).where(eq(auditLog.entityId, entry.id))
+    ).toMatchObject([
+      {
+        action: "queue.status_changed",
+        metadata: { fromStatus: "waiting", toStatus: "intake_done" },
+      },
+    ]);
+    expect(
+      await database.select().from(appointment).where(eq(appointment.id, booking.id))
+    ).toMatchObject([{ appointmentNo: 9, status: "booked" }]);
+    expect((await intake.getNurseQueue(nurse)).some((item) => item.id === entry.id)).toBe(
+      false
+    );
+
+    await expect(
+      intake.recordIntake({ encounterId: visit.id, intake: intakeInput, actor: nurse })
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect((await savedRecords(visit.id)).measurements).toHaveLength(1);
+  });
+
+  it("allows only one of two concurrent intake submissions", async () => {
+    const { visit, entry } = await waitingVisit();
+    const other = await createUser(database, { role: "nurse" });
+    const calls = [nurse, { userId: other.id, role: other.role }].map((actor) =>
+      intake.recordIntake({ encounterId: visit.id, intake: intakeInput, actor })
+    );
+    const results = await Promise.allSettled(calls);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const loser = results.find((result) => result.status === "rejected");
+    expect(loser?.status === "rejected" ? loser.reason : undefined).toMatchObject({
+      statusCode: 409,
+    });
+    const saved = await savedRecords(visit.id);
+    expect(saved.measurements).toHaveLength(1);
+    expect(saved.notes).toHaveLength(1);
+    expect(saved.events).toHaveLength(1);
+    expect(saved.notes[0].authorId).toBe(saved.measurements[0].recordedBy);
+    expect(saved.events[0].userId).toBe(saved.measurements[0].recordedBy);
+    expect(
+      await database.select().from(queueEntry).where(eq(queueEntry.id, entry.id))
+    ).toMatchObject([{ status: "intake_done" }]);
+  });
+
+  it("rejects unknown, closed, unchecked-in and non-waiting encounters without writing", async () => {
+    await expect(
+      intake.recordIntake({
+        encounterId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        intake: intakeInput,
+        actor: nurse,
+      })
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    for (const status of ["intake_done", "with_doctor", "completed"] as const) {
+      const { visit, entry } = await waitingVisit();
+      await database
+        .update(queueEntry)
+        .set({ status })
+        .where(eq(queueEntry.id, entry.id));
+      await expect(
+        intake.recordIntake({ encounterId: visit.id, intake: intakeInput, actor: nurse })
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect(await savedRecords(visit.id)).toEqual({
+        measurements: [],
+        notes: [],
+        events: [],
+      });
+    }
+    for (const overrides of [
+      { status: "cancelled" },
+      { appointmentDate: "2000-01-01" },
+      { appointmentDate: "2099-01-01" },
+    ]) {
+      const { visit, booking } = await waitingVisit();
+      await database
+        .update(appointment)
+        .set(overrides)
+        .where(eq(appointment.id, booking.id));
+      await expect(
+        intake.recordIntake({ encounterId: visit.id, intake: intakeInput, actor: nurse })
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect(await savedRecords(visit.id)).toEqual({
+        measurements: [],
+        notes: [],
+        events: [],
+      });
+    }
+    const booking = await createAppointment(database);
+    const visit = await createEncounter(database, { appointmentId: booking.id });
+    await expect(
+      intake.recordIntake({ encounterId: visit.id, intake: intakeInput, actor: nurse })
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(await savedRecords(visit.id)).toEqual({
+      measurements: [],
+      notes: [],
+      events: [],
+    });
+
+    const completed = await createEncounter(database, {
+      status: "completed",
+      endedAt: new Date(),
+    });
+    await expect(
+      intake.recordIntake({
+        encounterId: completed.id,
+        intake: intakeInput,
+        actor: nurse,
+      })
+    ).rejects.toMatchObject({ statusCode: 409, code: "ENCOUNTER_COMPLETED" });
+    expect(await savedRecords(completed.id)).toEqual({
+      measurements: [],
+      notes: [],
+      events: [],
+    });
+  });
+
+  it("rejects deactivated nurses, stale roles and invalid values at the service boundary", async () => {
+    const { visit } = await waitingVisit();
+    const unavailable = await createUser(database, { role: "nurse", banned: true });
+    await expect(
+      intake.recordIntake({
+        encounterId: visit.id,
+        intake: intakeInput,
+        actor: { userId: unavailable.id, role: "nurse" },
+      })
+    ).rejects.toMatchObject({ statusCode: 403, code: "ACCOUNT_UNAVAILABLE" });
+    const other = await createUser(database, { role: "doctor" });
+    await expect(
+      intake.recordIntake({
+        encounterId: visit.id,
+        intake: intakeInput,
+        actor: { userId: other.id, role: "nurse" },
+      })
+    ).rejects.toMatchObject({ statusCode: 403, code: "ACCOUNT_UNAVAILABLE" });
+    await expect(
+      intake.recordIntake({
+        encounterId: visit.id,
+        intake: { ...intakeInput, vitals: { spo2: 101 } },
+        actor: nurse,
+      })
+    ).rejects.toMatchObject({ statusCode: 400, code: "INVALID_INTAKE" });
+    expect(await savedRecords(visit.id)).toEqual({
+      measurements: [],
+      notes: [],
+      events: [],
+    });
+  });
+
+  it("rolls back records, handoff and queue audit when the intake audit insert fails", async () => {
+    const { visit, entry } = await waitingVisit();
+    // Fault injection is installed only in this suite's isolated database.
+    await connection`
+      CREATE FUNCTION fail_test_intake_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.action = 'intake.recorded' THEN
+          RAISE EXCEPTION 'Test intake audit failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$
+    `;
+    try {
+      await connection`
+        CREATE TRIGGER test_intake_audit_failure BEFORE INSERT ON audit_log
+        FOR EACH ROW EXECUTE FUNCTION fail_test_intake_audit()
+      `;
+      await expect(
+        intake.recordIntake({ encounterId: visit.id, intake: intakeInput, actor: nurse })
+      ).rejects.toThrow();
+      expect(await savedRecords(visit.id)).toEqual({
+        measurements: [],
+        notes: [],
+        events: [],
+      });
+      expect(
+        await database.select().from(queueEntry).where(eq(queueEntry.id, entry.id))
+      ).toMatchObject([{ status: "waiting" }]);
+      expect(
+        await database.select().from(auditLog).where(eq(auditLog.entityId, entry.id))
+      ).toEqual([]);
+    } finally {
+      await connection`DROP TRIGGER IF EXISTS test_intake_audit_failure ON audit_log`;
+      await connection`DROP FUNCTION fail_test_intake_audit()`;
+    }
+    // A clean retry succeeds once the injected failure is removed.
+    await expect(
+      intake.recordIntake({ encounterId: visit.id, intake: intakeInput, actor: nurse })
+    ).resolves.toMatchObject({ status: "intake_done" });
   });
 });

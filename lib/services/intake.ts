@@ -6,9 +6,21 @@ import { doctor } from "@/lib/db/schema/doctor";
 import { encounter } from "@/lib/db/schema/encounter";
 import { patient } from "@/lib/db/schema/patient";
 import { queueEntry } from "@/lib/db/schema/queue-entry";
+import { vitals } from "@/lib/db/schema/vitals";
+import { preliminaryNote } from "@/lib/db/schema/preliminary-note";
+import { intakeActions } from "@/lib/audit/actions/intake";
 import { colomboNow } from "@/lib/clinic-time";
-import type { NurseQueueEntry } from "@/lib/schemas/intake";
+import {
+  intakeEncounterParamsSchema,
+  recordIntakeSchema,
+  type NurseQueueEntry,
+  type RecordedIntake,
+  type RecordIntakeInput,
+} from "@/lib/schemas/intake";
 import { assertActiveActor, type Actor } from "./access-policy";
+import { assertEncounterWritable } from "./encounter";
+import { transitionQueueEntry } from "./queue";
+import { recordAudit } from "./audit";
 import { ServiceError } from "./service-error";
 
 export async function getNurseQueue(actor: Actor): Promise<NurseQueueEntry[]> {
@@ -58,4 +70,84 @@ export async function getNurseQueue(actor: Actor): Promise<NurseQueueEntry[]> {
     doctorName: row.doctorName,
     patient: { id: row.patientId, patientNo: row.patientNo, fullName: row.patientName },
   }));
+}
+
+export async function recordIntake(input: {
+  encounterId: string;
+  intake: RecordIntakeInput;
+  actor: Actor;
+}): Promise<RecordedIntake> {
+  if (input.actor.role !== "nurse") {
+    throw new ServiceError("Only nurses can record intake.", 403, "FORBIDDEN");
+  }
+  if (!intakeEncounterParamsSchema.safeParse({ id: input.encounterId }).success) {
+    throw new ServiceError("Invalid encounter identifier.", 400, "INVALID_ID");
+  }
+  const parsed = recordIntakeSchema.safeParse(input.intake);
+  if (!parsed.success) {
+    throw new ServiceError("Provide valid intake records.", 400, "INVALID_INTAKE");
+  }
+  const data = parsed.data;
+
+  return db.transaction(async (tx) => {
+    // Locks appointment -> encounter and checks today's booked, waiting visit.
+    const visit = await assertEncounterWritable(input.encounterId, input.actor, tx);
+    const [entry] = await tx
+      .select({ id: queueEntry.id })
+      .from(queueEntry)
+      .where(eq(queueEntry.appointmentId, visit.appointmentId))
+      .limit(1);
+    if (!entry) {
+      throw new ServiceError(
+        "The visit is not awaiting intake.",
+        409,
+        "INVALID_WORKFLOW_STATE"
+      );
+    }
+
+    const recordedAt = new Date();
+    const decimal = (value: number | null | undefined) =>
+      value == null ? null : value.toFixed(1);
+    const [savedVitals] = await tx
+      .insert(vitals)
+      .values({
+        ...data.vitals,
+        encounterId: visit.id,
+        recordedBy: input.actor.userId,
+        recordedAt,
+        temperatureC: decimal(data.vitals.temperatureC),
+        weightKg: decimal(data.vitals.weightKg),
+        heightCm: decimal(data.vitals.heightCm),
+      })
+      .returning({ id: vitals.id });
+    const [savedNote] = await tx
+      .insert(preliminaryNote)
+      .values({
+        encounterId: visit.id,
+        authorId: input.actor.userId,
+        content: `Initial complaint:\n${data.complaint}\n\nPreliminary note:\n${data.preliminaryNote}`,
+        createdAt: recordedAt,
+      })
+      .returning({ id: preliminaryNote.id });
+
+    await transitionQueueEntry(
+      { entryId: entry.id, from: "waiting", to: "intake_done", actor: input.actor },
+      tx
+    );
+    await recordAudit(tx, {
+      actorId: input.actor.userId,
+      action: intakeActions.recorded,
+      targetType: "encounter",
+      targetId: visit.id,
+    });
+
+    return {
+      encounterId: visit.id,
+      queueEntryId: entry.id,
+      status: "intake_done",
+      vitalsId: savedVitals.id,
+      preliminaryNoteId: savedNote.id,
+      recordedAt: recordedAt.toISOString(),
+    };
+  });
 }
