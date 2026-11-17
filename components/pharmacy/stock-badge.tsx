@@ -1,19 +1,17 @@
-﻿import { Badge } from "@/components/ui/badge";
-import { stockStatus, type MedicineStock } from "@/lib/mock/pharmacy";
+import { Badge } from "@/components/ui/badge";
+import type { MedicineStockView } from "@/lib/schemas/pharmacy";
 
-export function StockBadge({ medicine }: { medicine: MedicineStock }) {
-  const status = stockStatus(medicine);
+export function StockBadge({ medicine }: { medicine: MedicineStockView }) {
+  const available = medicine.isActive && medicine.quantityOnHand > 0;
   return (
     <Badge
       className={
-        status === "In stock"
+        available
           ? "bg-carely-success-soft text-carely-success"
-          : status === "Low stock"
-            ? "bg-amber-50 text-amber-800"
-            : "bg-red-50 text-red-700"
+          : "bg-red-50 text-red-700"
       }
     >
-      {status}
+      {!medicine.isActive ? "Inactive" : available ? "In stock" : "Out of stock"}
     </Badge>
   );
 }
