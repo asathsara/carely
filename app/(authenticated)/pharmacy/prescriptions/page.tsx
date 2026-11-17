@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
 import { PageTitle } from "@/components/workspace/workspace-ui";
-import { PrescriptionWorkbench } from "@/components/pharmacy/prescription-workbench";
+import { PrescriptionReader } from "@/components/pharmacy/prescription-reader";
 
 export const metadata: Metadata = { title: "Prescriptions" };
 export const instant = false;
@@ -12,11 +11,9 @@ export default function PrescriptionWorkbenchPage() {
       <PageTitle
         eyebrow="Pharmacy workspace"
         title="Prescriptions"
-        description="Review prescriptions and dispense medicines."
+        description="Review issued prescriptions. Dispensing is not part of this sprint."
       />
-      <Suspense fallback={<p role="status">Loading prescriptions...</p>}>
-        <PrescriptionWorkbench />
-      </Suspense>
+      <PrescriptionReader />
     </>
   );
 }

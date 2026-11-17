@@ -1,42 +1,43 @@
-"use client";
-import { PageTitle, Panel } from "@/components/workspace/workspace-ui";
-import { PatientVisitPicker } from "@/components/nurse/patient-visit-picker";
-import { PatientContext } from "@/components/nurse/patient-context";
-import { VitalsForm } from "@/components/nurse/vitals-form";
-import { useNurseWorkspace } from "@/components/nurse/nurse-workspace-provider";
-import { nursePatients } from "@/lib/mock/nurse";
-export default function NurseVitalsPage() {
-  const { workspace, patient, record } = useNurseWorkspace();
-  const lastSaved =
-    record.vitalsSaved ??
-    (workspace.visitId === "APT-1050"
-      ? "N. Fernando · Today, 10:20 AM"
-      : "No records saved yet");
+import type { Metadata } from "next";
+import { unstable_rethrow } from "next/navigation";
+import { requireRole } from "@/lib/auth-guard";
+import { getNurseQueue, getNurseIntakeReceipt } from "@/lib/services/intake";
+import type { NurseIntakeReceipt, NurseQueueEntry } from "@/lib/schemas/intake";
+import { IntakeWorkspace } from "@/components/nurse/intake-workspace";
+
+export const metadata: Metadata = { title: "Nurse Intake" };
+export const instant = false;
+
+export default async function NurseVitalsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const session = await requireRole("nurse");
+  const actor = { userId: session.user.id, role: session.user.role };
+  const query = await searchParams;
+  const selectedId = typeof query.encounterId === "string" ? query.encounterId : "";
+  let entries: NurseQueueEntry[] = [];
+  let receipt: NurseIntakeReceipt | null = null;
+  let error: string | null = null;
+  try {
+    entries = await getNurseQueue(actor);
+    if (typeof query.receipt === "string")
+      receipt = await getNurseIntakeReceipt(query.receipt, actor);
+  } catch (cause) {
+    unstable_rethrow(cause);
+    error =
+      typeof query.receipt === "string"
+        ? "Saved confirmation is unavailable for this account and date."
+        : "Unable to load the intake queue. Refresh to try again.";
+  }
   return (
-    <>
-      <title>Record Vitals | Carely</title>
-      <PageTitle
-        eyebrow="Care workspace"
-        title="Record Vitals"
-        description="Find a patient and select the visit to update."
-      />
-      <PatientVisitPicker
-        patient={patient}
-        patients={nursePatients}
-        visitId={workspace.visitId}
-        onSelect={workspace.select}
-      />
-      <div className="grid items-start gap-6 lg:grid-cols-3">
-        <Panel title="Measurements" className="min-w-0 lg:col-span-2">
-          <VitalsForm
-            key={workspace.visitId}
-            visitId={workspace.visitId}
-            record={record}
-            onSave={(values) => workspace.save(workspace.visitId, values)}
-          />
-        </Panel>
-        <PatientContext patient={patient} lastSaved={lastSaved} />
-      </div>
-    </>
+    <IntakeWorkspace
+      key={`${selectedId}:${receipt?.encounterId ?? ""}`}
+      initialEntries={entries}
+      selectedId={selectedId}
+      receipt={receipt}
+      initialError={error}
+    />
   );
 }

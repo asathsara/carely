@@ -1,27 +1,29 @@
 import { Panel } from "@/components/workspace/workspace-ui";
-import type { NursePatient } from "@/lib/mock/nurse";
-export function PatientContext({
-  patient,
-  lastSaved,
-}: {
-  patient: NursePatient;
-  lastSaved: string;
-}) {
+import type { NurseQueueEntry } from "@/lib/schemas/intake";
+
+export function PatientContext({ entry }: { entry: NurseQueueEntry }) {
   return (
-    <Panel title="Patient context" className="min-w-0">
-      <dl className="space-y-5 text-sm">
-        <div>
-          <dt className="text-sm font-semibold">Known condition</dt>
-          <dd className="text-muted-foreground mt-1">{patient.condition}</dd>
-        </div>
-        <div>
-          <dt className="text-sm font-semibold">Allergies</dt>
-          <dd className="text-muted-foreground mt-1">{patient.allergies}</dd>
-        </div>
-        <div>
-          <dt className="text-sm font-semibold">Last saved</dt>
-          <dd className="text-muted-foreground mt-1">{lastSaved}</dd>
-        </div>
+    <Panel title="Selected visit">
+      <dl className="space-y-4 text-sm">
+        {[
+          ["Patient", entry.patient.fullName],
+          ["Patient number", entry.patient.patientNo],
+          ["Appointment", `#${entry.appointmentNo}`],
+          ["Doctor", entry.doctorName],
+          [
+            "Checked in",
+            new Date(entry.checkedInAt).toLocaleTimeString("en-GB", {
+              timeZone: "Asia/Colombo",
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+          ],
+        ].map(([label, value]) => (
+          <div key={label}>
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="mt-1 font-semibold">{value}</dd>
+          </div>
+        ))}
       </dl>
     </Panel>
   );

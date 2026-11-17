@@ -77,20 +77,3 @@ export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type NewPasswordInput = z.infer<typeof newPasswordSchema>;
 export type ResetPasswordOtpInput = z.infer<typeof resetPasswordOtpSchema>;
 export type PatientOnboardingInput = z.infer<typeof patientOnboardingSchema>;
-
-export const roleSchema = z.enum([
-  "patient",
-  "doctor",
-  "nurse",
-  "receptionist",
-  "pharmacist",
-  "admin",
-]);
-
-export const mockCredentialSchema = z.object({
-  email: z.email(),
-  password: z.string().min(1),
-  role: roleSchema,
-});
-
-export type MockCredential = z.infer<typeof mockCredentialSchema>;
