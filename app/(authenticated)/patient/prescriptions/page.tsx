@@ -30,11 +30,14 @@ export default function PatientPrescriptionsPage() {
         {items.map((p) => (
           <section key={p.id} className="rounded-xl border p-5">
             <h2 className="font-semibold">Prescription</h2>
+            <p className="text-muted-foreground text-sm break-all">
+              Prescription ID {p.id}
+            </p>
             <p className="text-muted-foreground text-sm">
               Issued {new Date(p.createdAt).toLocaleString()}
             </p>
             {p.items.map((i) => (
-              <article key={i.medicineId} className="bg-muted mt-3 rounded-md p-3">
+              <article key={i.id} className="bg-muted mt-3 rounded-md p-3">
                 <p className="font-medium">
                   {i.name} {i.strength}
                 </p>

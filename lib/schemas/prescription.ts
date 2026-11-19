@@ -42,6 +42,7 @@ export type CreatedPrescription = {
 };
 export type CreatePrescriptionResponse = { prescription: CreatedPrescription };
 export type PrescriptionItemView = {
+  id: string;
   medicineId: string;
   name: string;
   form: string;
@@ -53,5 +54,11 @@ export type PrescriptionItemView = {
   instructions: string | null;
 };
 export type PrescriptionView = CreatedPrescription & { items: PrescriptionItemView[] };
-export type PrescriptionResponse = { prescription: PrescriptionView };
+export type DispensingEligibility =
+  | { status: "ready" | "dispensed" | "empty" }
+  | { status: "insufficient_stock"; shortMedicines: string[] };
+export type PharmacistPrescriptionView = PrescriptionView & {
+  dispensing: DispensingEligibility;
+};
+export type PrescriptionResponse = { prescription: PharmacistPrescriptionView };
 export type PatientPrescriptionsResponse = { prescriptions: PrescriptionView[] };

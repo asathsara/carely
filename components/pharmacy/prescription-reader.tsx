@@ -2,10 +2,29 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { writePharmacy } from "./pharmacy-api";
-import type { PrescriptionResponse } from "@/lib/schemas/prescription";
+import type {
+  DispensingEligibility,
+  PharmacistPrescriptionView,
+  PrescriptionResponse,
+} from "@/lib/schemas/prescription";
+
+const eligibilityLabels: Record<DispensingEligibility["status"], string> = {
+  ready: "Ready to dispense",
+  dispensed: "Dispensed",
+  empty: "Nothing to dispense",
+  insufficient_stock: "Insufficient stock",
+};
+
+async function readPrescription(id: string) {
+  const response = await fetch(`/api/prescriptions/${encodeURIComponent(id)}`);
+  const result: PrescriptionResponse & { error?: string } = await response.json();
+  if (!response.ok) throw new Error(result.error || "Unable to load prescription.");
+  return result.prescription;
+}
+
 export function PrescriptionReader() {
   const [id, setId] = useState("");
-  const [data, setData] = useState<PrescriptionResponse["prescription"] | null>(null);
+  const [data, setData] = useState<PharmacistPrescriptionView | null>(null);
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
   async function load(event: React.FormEvent<HTMLFormElement>) {
@@ -14,10 +33,7 @@ export function PrescriptionReader() {
     setData(null);
     setPending(true);
     try {
-      const response = await fetch(`/api/prescriptions/${encodeURIComponent(id.trim())}`);
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Unable to load prescription.");
-      setData(result.prescription);
+      setData(await readPrescription(id.trim()));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to load prescription.");
     } finally {
@@ -26,18 +42,19 @@ export function PrescriptionReader() {
   }
 
   async function dispense() {
-    if (!data || pending || data.status !== "issued") return;
+    if (!data || pending || data.dispensing.status !== "ready") return;
     if (!window.confirm("Dispense this prescription? This will deduct stock.")) return;
 
     setMessage("");
     setPending(true);
     try {
       await writePharmacy(`/api/pharmacy/prescriptions/${data.id}/dispense`, "POST", {});
-      setData({ ...data, status: "dispensed" });
+      setData({ ...data, status: "dispensed", dispensing: { status: "dispensed" } });
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Unable to dispense prescription."
       );
+      setData(await readPrescription(data.id).catch(() => null));
     } finally {
       setPending(false);
     }
@@ -71,7 +88,7 @@ export function PrescriptionReader() {
           </p>
           <div className="mt-4 space-y-3">
             {data.items.map((item) => (
-              <article key={item.medicineId} className="bg-muted rounded-md p-3">
+              <article key={item.id} className="bg-muted rounded-md p-3">
                 <p className="font-medium">
                   {item.name} {item.strength}
                 </p>
@@ -83,13 +100,21 @@ export function PrescriptionReader() {
               </article>
             ))}
           </div>
-          <div className="mt-5">
-            {data.status === "dispensed" ? (
-              <p role="status" className="text-sm font-semibold">
-                Dispensed
+          <div className="mt-5 space-y-2">
+            <p role="status" className="text-sm font-semibold">
+              {eligibilityLabels[data.dispensing.status]}
+            </p>
+            {data.dispensing.status === "insufficient_stock" && (
+              <p className="text-destructive text-sm">
+                Short on {data.dispensing.shortMedicines.join(", ")}.
               </p>
-            ) : (
-              <Button type="button" onClick={dispense} disabled={pending}>
+            )}
+            {data.dispensing.status !== "dispensed" && (
+              <Button
+                type="button"
+                onClick={dispense}
+                disabled={pending || data.dispensing.status !== "ready"}
+              >
                 {pending ? "Dispensing..." : "Dispense prescription"}
               </Button>
             )}
