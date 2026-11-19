@@ -9,8 +9,11 @@ export const pharmacyHeaders = { "Cache-Control": "no-store" };
 export async function requirePharmacist(request: Request, write = false) {
   if (write) {
     const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) {
-      throw new AuthError("Cross-origin stock changes are not allowed.", 403);
+    const url = new URL(request.url);
+    // Next.js can normalize loopback hostnames in the request URL.
+    const host = request.headers.get("host") ?? url.host;
+    if (origin && origin !== `${url.protocol}//${host}`) {
+      throw new AuthError("Cross-origin pharmacy changes are not allowed.", 403);
     }
   }
   const session = await requireRole("pharmacist", request.headers);
@@ -27,7 +30,7 @@ export function pharmacyError(error: unknown) {
   }
   if (error instanceof ZodError) {
     return NextResponse.json(
-      { error: "Provide valid medicine or batch details.", details: error.flatten() },
+      { error: "Provide valid pharmacy request details.", details: error.flatten() },
       { status: 400, headers: pharmacyHeaders }
     );
   }

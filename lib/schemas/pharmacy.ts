@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const dispensePrescriptionSchema = z.object({}).strict();
+
 export const medicineParamsSchema = z.object({ id: z.uuid() }).strict();
 
 export const createMedicineSchema = z
