@@ -90,8 +90,14 @@ export function PrescriptionReader() {
             {data.items.map((item) => (
               <article key={item.id} className="bg-muted rounded-md p-3">
                 <p className="font-medium">
-                  {item.name} {item.strength}
+                  {item.name}
+                  {item.strength && ` ${item.strength}`}
                 </p>
+                {item.medicineId === null && (
+                  <p className="text-muted-foreground text-sm">
+                    Outside catalogue · Patient buys outside
+                  </p>
+                )}
                 <p className="text-sm">
                   {item.dosage} · {item.frequency} · {item.durationDays} days · Qty{" "}
                   {item.quantity}

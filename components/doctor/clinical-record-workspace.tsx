@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useVisiblePolling } from "@/lib/hooks/use-visible-polling";
 import type { DoctorConsultationQueueResponse } from "@/lib/schemas/consultation";
 import type { ClinicalNotesResponse } from "@/lib/schemas/clinical-note";
+import { PrescriptionForm } from "./prescription-form";
 
 export function ClinicalRecordWorkspace() {
   const { data } =
@@ -126,6 +127,9 @@ export function ClinicalRecordWorkspace() {
           </p>
         )}
       </section>
+      {active.some((entry) => entry.encounterId === selectedEncounterId) && (
+        <PrescriptionForm key={selectedEncounterId} encounterId={selectedEncounterId} />
+      )}
     </div>
   );
 }

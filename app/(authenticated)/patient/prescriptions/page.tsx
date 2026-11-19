@@ -39,8 +39,14 @@ export default function PatientPrescriptionsPage() {
             {p.items.map((i) => (
               <article key={i.id} className="bg-muted mt-3 rounded-md p-3">
                 <p className="font-medium">
-                  {i.name} {i.strength}
+                  {i.name}
+                  {i.strength && ` ${i.strength}`}
                 </p>
+                {i.medicineId === null && (
+                  <p className="text-muted-foreground text-sm">
+                    Outside catalogue · Buy outside the hospital pharmacy
+                  </p>
+                )}
                 <p className="text-sm">
                   {i.dosage} · {i.frequency} · {i.durationDays} days · Qty {i.quantity}
                 </p>
