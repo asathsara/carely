@@ -3,9 +3,8 @@ import { z } from "zod";
 export const prescriptionEncounterParamsSchema = z.object({ id: z.uuid() }).strict();
 export const prescriptionParamsSchema = z.object({ id: z.uuid() }).strict();
 
-const prescriptionItemSchema = z
+const prescriptionDirectionsSchema = z
   .object({
-    medicineId: z.uuid(),
     dosage: z.string().trim().min(1).max(200),
     frequency: z.string().trim().min(1).max(200),
     durationDays: z.number().int().min(1).max(365),
@@ -14,12 +13,20 @@ const prescriptionItemSchema = z
   })
   .strict();
 
+const prescriptionItemSchema = z.union([
+  prescriptionDirectionsSchema.extend({ medicineId: z.uuid() }),
+  prescriptionDirectionsSchema.extend({
+    medicineName: z.string().trim().min(1).max(100),
+  }),
+]);
+
 export const createPrescriptionSchema = z
   .object({ items: z.array(prescriptionItemSchema).min(1).max(20) })
   .strict()
   .superRefine(({ items }, context) => {
     const seen = new Set<string>();
     for (const [index, item] of items.entries()) {
+      if (!("medicineId" in item)) continue;
       if (seen.has(item.medicineId)) {
         context.addIssue({
           code: "custom",
@@ -41,11 +48,15 @@ export type CreatedPrescription = {
   itemCount: number;
 };
 export type CreatePrescriptionResponse = { prescription: CreatedPrescription };
+export type PrescriptionCatalogueResponse = {
+  medicines: { id: string; name: string; form: string; strength: string }[];
+};
 export type PrescriptionItemView = {
-  medicineId: string;
+  id: string;
+  medicineId: string | null;
   name: string;
-  form: string;
-  strength: string;
+  form: string | null;
+  strength: string | null;
   dosage: string;
   frequency: string;
   durationDays: number;
@@ -53,5 +64,11 @@ export type PrescriptionItemView = {
   instructions: string | null;
 };
 export type PrescriptionView = CreatedPrescription & { items: PrescriptionItemView[] };
-export type PrescriptionResponse = { prescription: PrescriptionView };
+export type DispensingEligibility =
+  | { status: "ready" | "dispensed" | "empty" }
+  | { status: "insufficient_stock"; shortMedicines: string[] };
+export type PharmacistPrescriptionView = PrescriptionView & {
+  dispensing: DispensingEligibility;
+};
+export type PrescriptionResponse = { prescription: PharmacistPrescriptionView };
 export type PatientPrescriptionsResponse = { prescriptions: PrescriptionView[] };

@@ -1,10 +1,12 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, sql, sum } from "drizzle-orm";
+import { colomboNow } from "@/lib/clinic-time";
 import { db } from "@/lib/db";
 import { medicine } from "@/lib/db/schema/medicine";
 import { patient } from "@/lib/db/schema/patient";
 import { prescriptionItem } from "@/lib/db/schema/prescription-item";
 import { prescription } from "@/lib/db/schema/prescription";
 import { encounter } from "@/lib/db/schema/encounter";
+import { stockBatch } from "@/lib/db/schema/stock-batch";
 import { prescriptionActions } from "@/lib/audit/actions/prescription";
 import {
   createPrescriptionSchema,
@@ -12,6 +14,9 @@ import {
   prescriptionParamsSchema,
   type CreatedPrescription,
   type CreatePrescriptionInput,
+  type DispensingEligibility,
+  type PharmacistPrescriptionView,
+  type PrescriptionCatalogueResponse,
   type PrescriptionItemView,
   type PrescriptionView,
 } from "@/lib/schemas/prescription";
@@ -53,8 +58,9 @@ function toPrescriptionView(
 async function getItems(prescriptionId: string): Promise<PrescriptionItemView[]> {
   return db
     .select({
-      medicineId: medicine.id,
-      name: medicine.name,
+      id: prescriptionItem.id,
+      medicineId: prescriptionItem.medicineId,
+      name: sql<string>`coalesce(${prescriptionItem.medicineName}, ${medicine.name})`,
       form: medicine.form,
       strength: medicine.strength,
       dosage: prescriptionItem.dosage,
@@ -64,9 +70,53 @@ async function getItems(prescriptionId: string): Promise<PrescriptionItemView[]>
       instructions: prescriptionItem.instructions,
     })
     .from(prescriptionItem)
-    .innerJoin(medicine, eq(prescriptionItem.medicineId, medicine.id))
+    .leftJoin(medicine, eq(prescriptionItem.medicineId, medicine.id))
     .where(eq(prescriptionItem.prescriptionId, prescriptionId))
     .orderBy(asc(prescriptionItem.id));
+}
+
+async function getDispensingEligibility(
+  view: PrescriptionView
+): Promise<DispensingEligibility> {
+  if (view.status === "dispensed") return { status: "dispensed" };
+
+  const required = new Map<string, { name: string; quantity: number }>();
+  for (const item of view.items) {
+    if (item.medicineId === null) continue;
+    const previous = required.get(item.medicineId);
+    if (previous) {
+      previous.quantity += item.quantity;
+    } else {
+      required.set(item.medicineId, {
+        name: `${item.name} ${item.strength}`,
+        quantity: item.quantity,
+      });
+    }
+  }
+  if (!required.size) return { status: "empty" };
+
+  const batches = await db
+    .select({
+      medicineId: stockBatch.medicineId,
+      quantity: sum(stockBatch.quantityOnHand),
+    })
+    .from(stockBatch)
+    .where(
+      and(
+        inArray(stockBatch.medicineId, [...required.keys()]),
+        gte(stockBatch.expiryDate, colomboNow().date)
+      )
+    )
+    .groupBy(stockBatch.medicineId);
+  const available = new Map(
+    batches.map((batch) => [batch.medicineId, Number(batch.quantity)])
+  );
+  const shortMedicines = [...required]
+    .filter(([id, item]) => (available.get(id) ?? 0) < item.quantity)
+    .map(([, item]) => item.name);
+  return shortMedicines.length
+    ? { status: "insufficient_stock", shortMedicines }
+    : { status: "ready" };
 }
 
 export async function createPrescription(input: {
@@ -82,17 +132,22 @@ export async function createPrescription(input: {
   }
   return db.transaction(async (tx) => {
     const visit = await assertEncounterWritable(input.encounterId, input.actor, tx);
-    const medicineIds = parsed.data.items.map((item) => item.medicineId);
-    const activeMedicines = await tx
-      .select({ id: medicine.id })
-      .from(medicine)
-      .where(and(inArray(medicine.id, medicineIds), eq(medicine.isActive, true)));
-    if (activeMedicines.length !== medicineIds.length) {
-      throw new ServiceError(
-        "One or more medicines are unavailable.",
-        400,
-        "INVALID_MEDICINE"
-      );
+    const medicineIds = parsed.data.items.flatMap((item) =>
+      "medicineId" in item ? [item.medicineId] : []
+    );
+    if (medicineIds.length) {
+      const activeMedicines = await tx
+        .select({ id: medicine.id })
+        .from(medicine)
+        .where(and(inArray(medicine.id, medicineIds), eq(medicine.isActive, true)))
+        .for("share");
+      if (activeMedicines.length !== medicineIds.length) {
+        throw new ServiceError(
+          "One or more medicines are unavailable.",
+          400,
+          "INVALID_MEDICINE"
+        );
+      }
     }
     const createdAt = new Date();
     const [saved] = await tx
@@ -111,13 +166,8 @@ export async function createPrescription(input: {
       });
     await tx.insert(prescriptionItem).values(
       parsed.data.items.map((item) => ({
+        ...item,
         prescriptionId: saved.id,
-        medicineId: item.medicineId,
-        dosage: item.dosage,
-        frequency: item.frequency,
-        durationDays: item.durationDays,
-        quantity: item.quantity,
-        instructions: item.instructions ?? null,
       }))
     );
     await recordAudit(tx, {
@@ -135,10 +185,28 @@ export async function createPrescription(input: {
   });
 }
 
+export async function listPrescriptionMedicines(
+  actor: Actor
+): Promise<PrescriptionCatalogueResponse> {
+  assertDoctor(actor);
+  await assertActiveActor(actor);
+  const medicines = await db
+    .select({
+      id: medicine.id,
+      name: medicine.name,
+      form: medicine.form,
+      strength: medicine.strength,
+    })
+    .from(medicine)
+    .where(eq(medicine.isActive, true))
+    .orderBy(asc(medicine.name), asc(medicine.strength), asc(medicine.id));
+  return { medicines };
+}
+
 export async function getPrescription(input: {
   prescriptionId: string;
   actor: Actor;
-}): Promise<PrescriptionView> {
+}): Promise<PharmacistPrescriptionView> {
   if (!prescriptionParamsSchema.safeParse({ id: input.prescriptionId }).success) {
     throw new ServiceError("Invalid prescription identifier.", 400, "INVALID_ID");
   }
@@ -165,7 +233,8 @@ export async function getPrescription(input: {
     .where(eq(prescription.id, input.prescriptionId))
     .limit(1);
   if (!header) throw new ServiceError("Prescription not found.", 404, "NOT_FOUND");
-  return toPrescriptionView(header, await getItems(header.id));
+  const view = toPrescriptionView(header, await getItems(header.id));
+  return { ...view, dispensing: await getDispensingEligibility(view) };
 }
 
 export async function getPatientPrescriptions(actor: Actor): Promise<PrescriptionView[]> {

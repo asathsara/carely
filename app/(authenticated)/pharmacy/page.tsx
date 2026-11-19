@@ -12,7 +12,7 @@ export default function MedicineInventoryPage() {
       <PageTitle
         eyebrow="Pharmacy workspace"
         title="Inventory Dashboard"
-        description="Monitor stock quantity, reorder thresholds and expiry risks."
+        description="Manage the medicine catalogue and available stock."
       />
       <Suspense fallback={<p role="status">Loading medicine inventory...</p>}>
         <MedicineInventory />

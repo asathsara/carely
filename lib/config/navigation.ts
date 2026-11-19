@@ -48,7 +48,7 @@ export const roleNavigation: Record<string, NavItem[]> = {
   ],
   pharmacy: [
     { label: "Inventory", href: "/pharmacy", icon: PackageSearch },
-    { label: "Edit Stock", href: "/pharmacy/stock", icon: PackageOpen },
+    { label: "Receive Stock", href: "/pharmacy/stock", icon: PackageOpen },
     { label: "Prescriptions", href: "/pharmacy/prescriptions", icon: Pill },
   ],
   admin: [

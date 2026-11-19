@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { PageTitle } from "@/components/workspace/workspace-ui";
 import { StockEditor } from "@/components/pharmacy/stock-editor";
 
-export const metadata: Metadata = { title: "Edit Stock Item" };
+export const metadata: Metadata = { title: "Receive Stock" };
 export const instant = false;
 
 export default function StockEditorPage() {
@@ -10,10 +11,12 @@ export default function StockEditorPage() {
     <>
       <PageTitle
         eyebrow="Pharmacy workspace"
-        title="Edit Stock Item"
-        description="Update quantity, reorder threshold and expiry details."
+        title="Receive Stock"
+        description="Receive stock batches and review quantities and expiry dates."
       />
-      <StockEditor />
+      <Suspense fallback={<p role="status">Loading stock...</p>}>
+        <StockEditor />
+      </Suspense>
     </>
   );
 }
