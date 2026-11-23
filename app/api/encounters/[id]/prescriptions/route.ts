@@ -17,7 +17,9 @@ export async function POST(
 ) {
   try {
     const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) {
+    const url = new URL(request.url);
+    const host = request.headers.get("host") ?? url.host;
+    if (origin && origin !== `${url.protocol}//${host}`) {
       return NextResponse.json(
         { error: "Cross-origin prescription changes are not allowed." },
         { status: 403, headers }

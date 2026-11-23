@@ -8,6 +8,7 @@ import * as doctorSchema from "./schema/doctor";
 import * as patientSchema from "./schema/patient";
 import * as settingsSchema from "./schema/settings";
 import * as specialtySchema from "./schema/specialty";
+import * as visitReasonSchema from "./schema/visit-reason";
 
 import * as queueSchema from "./schema/queue-entry";
 import * as encounterSchema from "./schema/encounter";
@@ -18,6 +19,9 @@ import * as medicineSchema from "./schema/medicine";
 import * as prescriptionSchema from "./schema/prescription";
 import * as prescriptionItemSchema from "./schema/prescription-item";
 import * as auditSchema from "./schema/audit-log";
+
+import * as stockBatchSchema from "./schema/stock-batch";
+import * as dispenseRecordSchema from "./schema/dispense-record";
 
 const activeConnectionString =
   env.DATABASE_URL || "postgresql://carely_user:carely_password@localhost:5432/carely_db";
@@ -42,6 +46,7 @@ export const db = drizzle(conn, {
     ...patientSchema,
     ...settingsSchema,
     ...specialtySchema,
+    ...visitReasonSchema,
     ...doctorSchema,
     ...availabilitySchema,
     ...appointmentSchema,
@@ -54,6 +59,8 @@ export const db = drizzle(conn, {
     ...prescriptionSchema,
     ...prescriptionItemSchema,
     ...auditSchema,
+    ...stockBatchSchema,
+    ...dispenseRecordSchema,
   },
 });
 
@@ -65,6 +72,7 @@ export {
   patientSchema,
   settingsSchema,
   specialtySchema,
+  visitReasonSchema,
   queueSchema,
   encounterSchema,
   vitalsSchema,
@@ -74,4 +82,6 @@ export {
   prescriptionSchema,
   prescriptionItemSchema,
   auditSchema,
+  stockBatchSchema,
+  dispenseRecordSchema,
 };

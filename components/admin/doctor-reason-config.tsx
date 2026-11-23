@@ -1,269 +1,77 @@
-﻿"use client";
+"use client";
 
-import { useState, type FormEvent } from "react";
-import { Badge } from "@/components/ui/badge";
+import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Panel } from "@/components/workspace/workspace-ui";
-import { finderDoctors, visitReasons, type VisitReason } from "@/lib/mock/admin";
-import { cn } from "@/lib/utils";
+
+type Specialty = { id: string; name: string };
+type VisitReason = { id: string; name: string; specialtyId: string; specialtyName: string };
 
 export function DoctorReasonConfig() {
-  const [doctors, setDoctors] = useState(finderDoctors);
-  const [reasons, setReasons] = useState(visitReasons);
-  const [selectedId, setSelectedId] = useState(finderDoctors[0].id);
-  const [query, setQuery] = useState("");
-  const [newReason, setNewReason] = useState("");
-  const [editing, setEditing] = useState<VisitReason | null>(null);
-  const [error, setError] = useState("");
+  const [specialties, setSpecialties] = useState<Specialty[]>([]);
+  const [reasons, setReasons] = useState<VisitReason[]>([]);
+  const [name, setName] = useState("");
+  const [specialtyId, setSpecialtyId] = useState("");
   const [message, setMessage] = useState("");
-  const doctor = doctors.find((item) => item.id === selectedId)!;
-  const filtered = doctors.filter((item) =>
-    `${item.name} ${item.specialty}`.toLowerCase().includes(query.trim().toLowerCase())
-  );
-  function addReason(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const label = newReason.trim();
-    if (!label) {
-      setError("Enter a reason for visiting.");
-      return;
-    }
-    if (reasons.some((reason) => reason.label.toLowerCase() === label.toLowerCase())) {
-      setError("This reason already exists.");
-      return;
-    }
-    setReasons((previous) => [
-      ...previous,
-      { id: crypto.randomUUID(), label, active: true },
-    ]);
-    setNewReason("");
-    setError("");
-    setMessage("");
+  const [error, setError] = useState("");
+
+  async function load() {
+    const [specialtyResponse, reasonResponse] = await Promise.all([fetch("/api/admin/specialties", { cache: "no-store" }), fetch("/api/admin/visit-reasons", { cache: "no-store" })]);
+    const specialtyData: { specialties?: Specialty[]; error?: string } = await specialtyResponse.json();
+    const reasonData: { reasons?: VisitReason[]; error?: string } = await reasonResponse.json();
+    if (!specialtyResponse.ok || !reasonResponse.ok) throw new Error(specialtyData.error ?? reasonData.error ?? "Unable to load configuration.");
+    setSpecialties(specialtyData.specialties ?? []);
+    setReasons(reasonData.reasons ?? []);
   }
-  function editReason(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!editing) return;
-    const label = editing.label.trim();
-    if (!label) {
-      setError("Enter a reason name.");
-      return;
-    }
-    if (
-      reasons.some(
-        (reason) =>
-          reason.id !== editing.id && reason.label.toLowerCase() === label.toLowerCase()
-      )
-    ) {
-      setError("This reason already exists.");
-      return;
-    }
-    setReasons((previous) =>
-      previous.map((reason) =>
-        reason.id === editing.id ? { ...editing, label } : reason
-      )
-    );
-    setEditing(null);
-    setError("");
-    setMessage("");
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void load().catch((cause) =>
+        setError(cause instanceof Error ? cause.message : "Unable to load configuration.")
+      );
+    });
+  }, []);
+
+  async function save(url: string, method: "POST" | "PATCH" | "DELETE", body?: unknown) {
+    const response = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+    const data: { error?: string } = response.status === 204 ? {} : await response.json();
+    if (!response.ok) throw new Error(data.error ?? "Unable to save visit reason.");
+    await load();
   }
-  return (
-    <div className="grid items-start gap-6 lg:grid-cols-3">
-      <Panel title="Doctors" className="min-w-0">
-        <Input
-          id="finder-doctor-search"
-          label="Search doctor"
-          placeholder="Search doctor or specialty..."
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          controlSize="compact"
-        />
-        <div className="mt-4 space-y-3" aria-label="Doctors">
-          {filtered.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              aria-pressed={selectedId === item.id}
-              onClick={() => {
-                setSelectedId(item.id);
-                setMessage("");
-              }}
-              className={cn(
-                "focus-visible:ring-ring/40 w-full rounded-xl p-4 text-left outline-none focus-visible:ring-2",
-                selectedId === item.id
-                  ? "bg-secondary"
-                  : "bg-carely-surface hover:bg-secondary/60"
-              )}
-            >
-              <span className="block text-sm font-semibold">{item.name}</span>
-              <span className="text-muted-foreground mt-1 block text-sm">
-                {item.specialty} &middot;{" "}
-                {
-                  item.reasonIds.filter((id) =>
-                    reasons.some((reason) => reason.id === id && reason.active)
-                  ).length
-                }{" "}
-                reasons
-              </span>
-            </button>
-          ))}
-          {!filtered.length && (
-            <p role="status" className="text-muted-foreground py-6 text-center text-sm">
-              No matching doctors.
-            </p>
-          )}
-        </div>
-      </Panel>
-      <Panel title={doctor.name} className="min-w-0 lg:col-span-2">
-        <p className="text-muted-foreground mb-5 text-sm">
-          {doctor.specialty} &middot; {doctor.active ? "Active" : "Inactive"}
-        </p>
-        <fieldset className="space-y-3">
-          <legend className="mb-3 text-sm font-semibold">Reasons for visiting</legend>
-          {reasons.map((reason) => (
-            <div
-              key={reason.id}
-              className="bg-carely-surface flex flex-wrap items-center gap-3 rounded-xl p-3 sm:p-4"
-            >
-              <label className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-3 text-sm">
-                <Checkbox
-                  checked={doctor.reasonIds.includes(reason.id)}
-                  disabled={!reason.active}
-                  onCheckedChange={(checked) => {
-                    setDoctors((previous) =>
-                      previous.map((item) =>
-                        item.id === selectedId
-                          ? {
-                              ...item,
-                              reasonIds: checked
-                                ? [...item.reasonIds, reason.id]
-                                : item.reasonIds.filter((id) => id !== reason.id),
-                            }
-                          : item
-                      )
-                    );
-                    setMessage("");
-                  }}
-                />
-                <span
-                  className={cn(
-                    "wrap-break-word",
-                    doctor.reasonIds.includes(reason.id) && "font-semibold"
-                  )}
-                >
-                  {reason.label}
-                </span>
-              </label>
-              <Badge
-                className={
-                  reason.active
-                    ? "text-muted-foreground bg-transparent"
-                    : "bg-muted text-muted-foreground"
-                }
-              >
-                {reason.active ? "Active" : "Inactive"}
-              </Badge>
-              <Button
-                variant="link"
-                size="sm"
-                aria-label={`Edit ${reason.label}`}
-                onClick={() => {
-                  setEditing({ ...reason });
-                  setError("");
-                }}
-              >
-                Edit
-              </Button>
-            </div>
-          ))}
-        </fieldset>
-        {editing && (
-          <form
-            onSubmit={editReason}
-            className="mt-5 space-y-4 rounded-xl border p-4"
-            aria-label="Edit visit reason"
-          >
-            <Input
-              id="edit-visit-reason"
-              label="Reason name"
-              showLabel
-              required
-              maxLength={120}
-              value={editing.label}
-              onChange={(event) => setEditing({ ...editing, label: event.target.value })}
-            />
-            <label className="flex min-h-11 items-center gap-3 text-sm">
-              <Checkbox
-                checked={editing.active}
-                onCheckedChange={(active) => setEditing({ ...editing, active })}
-              />
-              Active reason
-            </label>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button type="submit">Update reason</Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setEditing(null);
-                  setError("");
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
-          </form>
-        )}
-        <form onSubmit={addReason} className="mt-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="min-w-0 flex-1">
-              <Input
-                id="new-visit-reason"
-                label="Add a reason"
-                showLabel
-                placeholder="Enter reason for visiting"
-                maxLength={120}
-                required
-                value={newReason}
-                onChange={(event) => setNewReason(event.target.value)}
-              />
-            </div>
-            <Button type="submit" variant="outline" className="sm:min-h-14">
-              Add reason
-            </Button>
-          </div>
-        </form>
-        {error && (
-          <p role="alert" className="text-destructive mt-3 text-sm">
-            {error}
-          </p>
-        )}
-        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <Button
-            className="w-full sm:w-auto"
-            onClick={() =>
-              setMessage(
-                `Doctor Finder changes saved in this demo session for ${doctor.name}.`
-              )
-            }
-          >
-            Save changes
-          </Button>
-          <span className="text-muted-foreground text-sm">
-            {
-              doctor.reasonIds.filter((id) =>
-                reasons.some((reason) => reason.id === id && reason.active)
-              ).length
-            }{" "}
-            active reasons selected
-          </span>
-        </div>
-        {message && (
-          <p role="status" className="text-primary mt-3 text-sm">
-            {message}
-          </p>
-        )}
-      </Panel>
+
+  async function addReason(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError(""); setMessage("");
+    try { await save("/api/admin/visit-reasons", "POST", { name, specialtyId }); setName(""); setSpecialtyId(""); setMessage("Visit reason created."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save visit reason."); }
+  }
+
+  async function updateReason(reason: VisitReason, changes: Partial<Pick<VisitReason, "name" | "specialtyId">>) {
+    setError("");
+    try { await save(`/api/admin/visit-reasons/${reason.id}`, "PATCH", { name: changes.name ?? reason.name, specialtyId: changes.specialtyId ?? reason.specialtyId }); setMessage("Visit reason updated."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save visit reason."); }
+  }
+
+  return <Panel title="Visit reasons" className="min-w-0">
+    <p className="text-muted-foreground mb-5 text-sm">Each reason maps patients to active doctors in one specialty.</p>
+    <div className="space-y-3">
+      {reasons.map((reason) => <div key={reason.id} className="bg-carely-surface grid gap-3 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+        <Input id={`reason-${reason.id}`} label="Reason" showLabel value={reason.name} onChange={(event) => setReasons((current) => current.map((item) => item.id === reason.id ? { ...item, name: event.target.value } : item))} onBlur={() => void updateReason(reason, { name: reasons.find((item) => item.id === reason.id)?.name })} />
+        <label className="text-sm font-semibold" htmlFor={`reason-specialty-${reason.id}`}>Specialty
+          <select id={`reason-specialty-${reason.id}`} className="border-input bg-background mt-2 flex h-11 w-full rounded-md border px-3 text-sm" value={reason.specialtyId} onChange={(event) => void updateReason(reason, { specialtyId: event.target.value })}>{specialties.map((specialty) => <option key={specialty.id} value={specialty.id}>{specialty.name}</option>)}</select>
+        </label>
+        <Button type="button" variant="outline" onClick={() => void save(`/api/admin/visit-reasons/${reason.id}`, "DELETE").then(() => setMessage("Visit reason deleted.")).catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to delete visit reason."))}>Delete</Button>
+      </div>)}
+      {!reasons.length && <p className="text-muted-foreground text-sm">No visit reasons have been configured.</p>}
     </div>
-  );
+    <form onSubmit={addReason} className="mt-5 grid gap-3 rounded-xl border p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+      <Input id="new-visit-reason" label="New reason" showLabel required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} />
+      <label className="text-sm font-semibold" htmlFor="new-reason-specialty">Specialty
+        <select id="new-reason-specialty" required className="border-input bg-background mt-2 flex h-11 w-full rounded-md border px-3 text-sm" value={specialtyId} onChange={(event) => setSpecialtyId(event.target.value)}><option value="">Choose a specialty</option>{specialties.map((specialty) => <option key={specialty.id} value={specialty.id}>{specialty.name}</option>)}</select>
+      </label>
+      <Button type="submit">Add reason</Button>
+    </form>
+    {error && <p role="alert" className="text-destructive mt-3 text-sm">{error}</p>}
+    {message && <p role="status" className="text-primary mt-3 text-sm">{message}</p>}
+  </Panel>;
 }

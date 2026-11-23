@@ -1,4 +1,5 @@
 import { and, eq, gte, lte, ne, sql } from "drizzle-orm";
+import { appointmentActions } from "@/lib/audit/actions/appointment";
 import { db } from "@/lib/db";
 import { colomboNow } from "@/lib/clinic-time";
 import { appointment } from "@/lib/db/schema/appointment";
@@ -7,6 +8,7 @@ import { doctor } from "@/lib/db/schema/doctor";
 import { doctorAvailability } from "@/lib/db/schema/doctor-availability";
 import { patient } from "@/lib/db/schema/patient";
 import { specialty } from "@/lib/db/schema/specialty";
+import { visitReason } from "@/lib/db/schema/visit-reason";
 import { queueEntry } from "@/lib/db/schema/queue-entry";
 import {
   bookAppointmentSchema,
@@ -17,6 +19,7 @@ import {
   type CancelAppointmentParams,
   type OpenDatesResponse,
 } from "@/lib/schemas/booking";
+import { recordAudit } from "@/lib/services/audit";
 
 export class BookingServiceError extends Error {
   constructor(
@@ -68,7 +71,7 @@ export async function bookAppointment(
     return failure("FORBIDDEN", "You cannot book appointments", 403);
   }
 
-  const { doctorId, patientId, date } = input.data;
+  const { doctorId, patientId, date, visitReasonId } = input.data;
   // UTC arithmetic determines the weekday of the date label, independent of host TZ.
   const dayOfWeek = new Date(`${date}T00:00:00.000Z`).getUTCDay();
 
@@ -116,6 +119,23 @@ export async function bookAppointment(
           targetDoctor.role !== "doctor"
         ) {
           return failure("DOCTOR_INACTIVE", "Doctor is currently inactive");
+        }
+
+        if (visitReasonId) {
+          const [reason] = await tx
+            .select({ id: visitReason.id })
+            .from(visitReason)
+            .innerJoin(doctor, eq(doctor.id, doctorId))
+            .where(
+              and(
+                eq(visitReason.id, visitReasonId),
+                sql`${visitReason.specialtyId} = ${doctor.specialtyId}`
+              )
+            )
+            .limit(1);
+          if (!reason) {
+            return failure("REASON_DOCTOR_MISMATCH", "Choose a doctor matched to your reason.");
+          }
         }
 
         const [availability] = await tx
@@ -166,6 +186,7 @@ export async function bookAppointment(
           .values({
             doctorId,
             patientId,
+            visitReasonId,
             appointmentDate: date,
             appointmentNo: totals.lastNumber + 1,
             status: "booked",
@@ -174,6 +195,14 @@ export async function bookAppointment(
             feeAmount: targetDoctor.consultationFee,
           })
           .returning();
+
+        await recordAudit(tx, {
+          actorId: actor.userId,
+          action: appointmentActions.booked,
+          targetType: "appointment",
+          targetId: created.id,
+          metadata: {},
+        });
 
         return {
           success: true,
@@ -368,6 +397,13 @@ export async function cancelAppointment(
         .update(appointment)
         .set({ status: "cancelled", updatedAt: new Date() })
         .where(eq(appointment.id, appointmentId));
+      await recordAudit(tx, {
+        actorId: actor.userId,
+        action: appointmentActions.cancelled,
+        targetType: "appointment",
+        targetId: appointmentId,
+        metadata: {},
+      });
       return { success: true };
     },
     { isolationLevel: "read committed" }

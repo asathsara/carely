@@ -11,7 +11,7 @@ export default function PrescriptionWorkbenchPage() {
       <PageTitle
         eyebrow="Pharmacy workspace"
         title="Prescriptions"
-        description="Review issued prescriptions. Dispensing is not part of this sprint."
+        description="Find a prescription by ID, review its items, and dispense it."
       />
       <PrescriptionReader />
     </>

@@ -1,111 +1,102 @@
-﻿"use client";
+"use client";
 
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { MedicineStock } from "@/lib/mock/pharmacy";
+import { writePharmacy } from "./pharmacy-api";
+import type { MedicineStockView } from "@/lib/schemas/pharmacy";
 
 export function StockItemForm({
   medicine,
-  onSave,
-  onCancel,
+  today,
+  onSaved,
 }: {
-  medicine: MedicineStock;
-  onSave: (medicine: MedicineStock) => void;
-  onCancel: () => void;
+  medicine: MedicineStockView;
+  today: string;
+  onSaved: () => void;
 }) {
   const [error, setError] = useState("");
-  function save(event: FormEvent<HTMLFormElement>) {
+  const [message, setMessage] = useState("");
+  const [pending, setPending] = useState(false);
+
+  async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const quantity = Number(data.get("quantity"));
-    const threshold = Number(data.get("threshold"));
-    const batch = String(data.get("batch")).trim();
-    const expiry = String(data.get("expiry"));
-    if (
-      !Number.isSafeInteger(quantity) ||
-      !Number.isSafeInteger(threshold) ||
-      quantity < 0 ||
-      threshold < 0
-    ) {
-      setError("Quantity and reorder threshold must be non-negative whole numbers.");
-      return;
-    }
-    if (quantity > 0 && (!batch || !expiry)) {
-      setError("Record a batch number and expiry date for available stock.");
-      return;
-    }
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    setPending(true);
     setError("");
-    onSave({
-      ...medicine,
-      quantity,
-      threshold,
-      batch,
-      expiry,
-      updated: "Just now by A. Silva",
-    });
+    setMessage("");
+    try {
+      await writePharmacy(`/api/pharmacy/medicines/${medicine.id}/batches`, "POST", {
+        batchNo: String(data.get("batchNo")).trim(),
+        expiryDate: String(data.get("expiryDate")),
+        quantity: Number(data.get("quantity")),
+      });
+      form.reset();
+      setMessage("Stock batch received.");
+      onSaved();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to receive stock.");
+    } finally {
+      setPending(false);
+    }
   }
+
   return (
-    <form onSubmit={save} className="space-y-5">
-      <div>
-        <p className="font-semibold">{medicine.name}</p>
-        <p className="text-muted-foreground mt-1 text-xs">
-          {medicine.form} &middot; {medicine.id}
+    <form onSubmit={save} className="space-y-4">
+      {!medicine.isActive && (
+        <p role="status" className="text-sm">
+          Activate this medicine in the catalogue before receiving stock.
         </p>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Input
-          id="stock-quantity"
-          name="quantity"
-          label="Current quantity"
-          showLabel
-          type="number"
-          min={0}
-          max={1000000000}
-          step={1}
-          required
-          defaultValue={medicine.quantity}
-        />
-        <Input
-          id="stock-threshold"
-          name="threshold"
-          label="Reorder threshold"
-          showLabel
-          type="number"
-          min={0}
-          max={1000000000}
-          step={1}
-          required
-          defaultValue={medicine.threshold}
-        />
+      )}
+      <fieldset
+        disabled={pending || !medicine.isActive}
+        className="grid gap-4 sm:grid-cols-2"
+      >
         <Input
           id="stock-batch"
-          name="batch"
+          name="batchNo"
           label="Batch number"
           showLabel
+          required
           maxLength={80}
-          defaultValue={medicine.batch}
         />
         <Input
           id="stock-expiry"
-          name="expiry"
+          name="expiryDate"
           label="Expiry date"
           showLabel
           type="date"
-          defaultValue={medicine.expiry}
+          min={today}
+          required
         />
-      </div>
+        <Input
+          id="stock-quantity"
+          name="quantity"
+          label="Quantity received"
+          showLabel
+          type="number"
+          min={0}
+          max={2147483647}
+          step={1}
+          required
+        />
+        <div className="self-end">
+          <Button type="submit" disabled={pending || !medicine.isActive}>
+            {pending ? "Receiving..." : "Receive batch"}
+          </Button>
+        </div>
+      </fieldset>
       {error && (
         <p role="alert" className="text-destructive text-sm">
           {error}
         </p>
       )}
-      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button type="submit">Save changes</Button>
-      </div>
+      {message && (
+        <p role="status" className="text-primary text-sm">
+          {message}
+        </p>
+      )}
     </form>
   );
 }
