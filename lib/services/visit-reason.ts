@@ -1,12 +1,15 @@
-import { asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, sql } from "drizzle-orm";
 import { adminConfigActions } from "@/lib/audit/actions/admin-config";
 import { db } from "@/lib/db";
 import { specialty } from "@/lib/db/schema/specialty";
 import { visitReason } from "@/lib/db/schema/visit-reason";
 import { appointment } from "@/lib/db/schema/appointment";
+import { doctor } from "@/lib/db/schema/doctor";
+import { user } from "@/lib/db/schema/auth";
 import { assertActiveActor, type Actor } from "@/lib/services/access-policy";
 import { recordAudit } from "@/lib/services/audit";
 import { ServiceError } from "@/lib/services/service-error";
+import { getOpenDatesForDoctor } from "@/lib/services/booking";
 
 type VisitReasonInput = { name: string; specialtyId: string };
 
@@ -25,6 +28,54 @@ export async function listVisitReasons() {
     .from(visitReason)
     .innerJoin(specialty, eq(visitReason.specialtyId, specialty.id))
     .orderBy(asc(visitReason.name));
+}
+
+export async function listPatientVisitReasons() {
+  return db
+    .select({ id: visitReason.id, name: visitReason.name, specialtyName: specialty.name })
+    .from(visitReason)
+    .innerJoin(specialty, eq(visitReason.specialtyId, specialty.id))
+    .where(eq(visitReason.isActive, true))
+    .orderBy(asc(visitReason.name));
+}
+
+export async function findDoctorsForReason(reasonId: string) {
+  const [reason] = await db
+    .select({ specialtyId: visitReason.specialtyId })
+    .from(visitReason)
+    .where(and(eq(visitReason.id, reasonId), eq(visitReason.isActive, true)))
+    .limit(1);
+  if (!reason) throw new ServiceError("Visit reason not found.", 404, "REASON_NOT_FOUND");
+
+  const doctors = await db
+    .select({
+      id: doctor.id,
+      name: user.name,
+      specialtyName: specialty.name,
+      consultationFee: doctor.consultationFee,
+    })
+    .from(doctor)
+    .innerJoin(user, eq(doctor.userId, user.id))
+    .innerJoin(specialty, eq(doctor.specialtyId, specialty.id))
+    .where(
+      and(
+        eq(doctor.specialtyId, reason.specialtyId),
+        eq(doctor.isActive, true),
+        eq(user.role, "doctor"),
+        sql`coalesce(${user.banned}, false) = false`
+      )
+    );
+
+  const withDates = await Promise.all(
+    doctors.map(async (doctor) => ({ doctor, dates: await getOpenDatesForDoctor(doctor.id) }))
+  );
+  return withDates
+    .sort((left, right) => {
+      const leftDate = left.dates.dates[0]?.date ?? "9999-12-31";
+      const rightDate = right.dates.dates[0]?.date ?? "9999-12-31";
+      return leftDate.localeCompare(rightDate) || left.doctor.name.localeCompare(right.doctor.name);
+    })
+    .map(({ doctor }) => doctor);
 }
 
 export async function createVisitReason(input: VisitReasonInput, actor: Actor) {

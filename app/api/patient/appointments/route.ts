@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     const parsed = patientBookingSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
-        { error: "Choose a valid doctor and appointment date." },
+        { error: "Choose a valid reason, doctor, and appointment date." },
         { status: 400, headers: appointmentHeaders }
       );
     }

@@ -12,3 +12,5 @@ export const visitReasonCreateSchema = z
   .object({ name, specialtyId: z.uuid("Choose a specialty") })
   .strict();
 export const visitReasonUpdateSchema = visitReasonCreateSchema;
+
+export const doctorFinderQuerySchema = z.object({ reasonId: z.uuid("Invalid reason") }).strict();

@@ -7,6 +7,7 @@ import { doctor } from "@/lib/db/schema/doctor";
 import { doctorAvailability } from "@/lib/db/schema/doctor-availability";
 import { patient } from "@/lib/db/schema/patient";
 import { specialty } from "@/lib/db/schema/specialty";
+import { visitReason } from "@/lib/db/schema/visit-reason";
 import { queueEntry } from "@/lib/db/schema/queue-entry";
 import {
   bookAppointmentSchema,
@@ -68,7 +69,7 @@ export async function bookAppointment(
     return failure("FORBIDDEN", "You cannot book appointments", 403);
   }
 
-  const { doctorId, patientId, date } = input.data;
+  const { doctorId, patientId, date, visitReasonId } = input.data;
   // UTC arithmetic determines the weekday of the date label, independent of host TZ.
   const dayOfWeek = new Date(`${date}T00:00:00.000Z`).getUTCDay();
 
@@ -116,6 +117,23 @@ export async function bookAppointment(
           targetDoctor.role !== "doctor"
         ) {
           return failure("DOCTOR_INACTIVE", "Doctor is currently inactive");
+        }
+
+        if (visitReasonId) {
+          const [reason] = await tx
+            .select({ id: visitReason.id })
+            .from(visitReason)
+            .innerJoin(doctor, eq(doctor.id, doctorId))
+            .where(
+              and(
+                eq(visitReason.id, visitReasonId),
+                sql`${visitReason.specialtyId} = ${doctor.specialtyId}`
+              )
+            )
+            .limit(1);
+          if (!reason) {
+            return failure("REASON_DOCTOR_MISMATCH", "Choose a doctor matched to your reason.");
+          }
         }
 
         const [availability] = await tx
@@ -166,6 +184,7 @@ export async function bookAppointment(
           .values({
             doctorId,
             patientId,
+            visitReasonId,
             appointmentDate: date,
             appointmentNo: totals.lastNumber + 1,
             status: "booked",

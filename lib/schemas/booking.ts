@@ -15,13 +15,15 @@ export const bookAppointmentSchema = z.object({
       );
     }, "Appointment date must be a real calendar date"),
   patientId: z.uuid("Invalid patient ID"),
+  visitReasonId: z.uuid("Invalid visit reason ID").optional(),
 });
 
 export type BookAppointmentInput = z.infer<typeof bookAppointmentSchema>;
 
 export const openDatesQuerySchema = bookAppointmentSchema.pick({ doctorId: true });
 export const patientBookingSchema = bookAppointmentSchema
-  .omit({ patientId: true })
+  .omit({ patientId: true, visitReasonId: true })
+  .extend({ visitReasonId: z.uuid("Invalid visit reason ID") })
   .strict();
 export const cancelAppointmentSchema = z.object({
   appointmentId: z.uuid("Invalid appointment ID"),
@@ -36,6 +38,7 @@ export interface BookAppointmentParams {
   doctorId: string;
   date: string; // YYYY-MM-DD
   patientId: string;
+  visitReasonId?: string;
   actor: BookAppointmentActor;
 }
 
@@ -76,6 +79,12 @@ export interface PatientDoctorOption {
   name: string;
   specialtyName: string | null;
   consultationFee: string | null;
+}
+
+export interface PatientVisitReason {
+  id: string;
+  name: string;
+  specialtyName: string;
 }
 
 export interface PatientAppointmentView {
