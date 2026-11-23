@@ -58,6 +58,8 @@ export const auditMetadataSchema = z
           "weightKg",
           "heightCm",
           "status",
+          "hospitalName",
+          "email",
         ])
       )
       .max(32)

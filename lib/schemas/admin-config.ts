@@ -14,3 +14,12 @@ export const visitReasonCreateSchema = z
 export const visitReasonUpdateSchema = visitReasonCreateSchema;
 
 export const doctorFinderQuerySchema = z.object({ reasonId: z.uuid("Invalid reason") }).strict();
+
+export const settingsSchema = z
+  .object({
+    hospitalName: name,
+    address: z.string().trim().max(500).nullable(),
+    phone: z.string().trim().max(50).nullable(),
+    email: z.email("Provide a valid email address").max(254).nullable(),
+  })
+  .strict();
