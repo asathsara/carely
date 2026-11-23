@@ -1,6 +1,5 @@
 ﻿import type { Metadata } from "next";
 import { HospitalDetailsForm } from "@/components/admin/hospital-details-form";
-import { RolePermissionsForm } from "@/components/admin/role-permissions-form";
 import { PageTitle } from "@/components/workspace/workspace-ui";
 
 export const metadata: Metadata = { title: "System Settings" };
@@ -12,11 +11,10 @@ export default function AdminSettingsPage() {
       <PageTitle
         eyebrow="Administration"
         title="System Settings"
-        description="Manage hospital details and staff role permissions."
+        description="Manage hospital details."
       />
-      <div className="grid items-start gap-6 xl:grid-cols-2">
+      <div className="max-w-3xl">
         <HospitalDetailsForm />
-        <RolePermissionsForm />
       </div>
     </>
   );

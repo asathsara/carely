@@ -19,7 +19,13 @@ import type {
   PatientDoctorOption,
 } from "@/lib/schemas/booking";
 
-export function AppointmentBooking({ doctor }: { doctor: PatientDoctorOption }) {
+export function AppointmentBooking({
+  doctor,
+  visitReasonId,
+}: {
+  doctor: PatientDoctorOption;
+  visitReasonId: string;
+}) {
   const router = useRouter();
   const [dates, setDates] = useState<OpenDateEntry[]>([]);
   const [date, setDate] = useState("");
@@ -75,7 +81,7 @@ export function AppointmentBooking({ doctor }: { doctor: PatientDoctorOption }) 
       const response = await fetch("/api/patient/appointments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ doctorId: doctor.id, date: chosen.date }),
+        body: JSON.stringify({ doctorId: doctor.id, date: chosen.date, visitReasonId }),
       });
       const result: BookAppointmentResult = await response.json();
       if (!response.ok || !result.success || !result.appointment) {
