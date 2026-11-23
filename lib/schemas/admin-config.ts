@@ -7,3 +7,8 @@ export const specialtyUpdateSchema = z.object({ name }).strict();
 export const doctorSpecialtySchema = z
   .object({ specialtyId: z.uuid("Choose a valid specialty") })
   .strict();
+
+export const visitReasonCreateSchema = z
+  .object({ name, specialtyId: z.uuid("Choose a specialty") })
+  .strict();
+export const visitReasonUpdateSchema = visitReasonCreateSchema;

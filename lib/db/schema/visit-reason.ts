@@ -9,3 +9,5 @@ export const visitReason = pgTable("visit_reason", {
     .references(() => specialty.id, { onDelete: "restrict" }),
   isActive: boolean("is_active").default(true).notNull(),
 });
+
+export type VisitReason = typeof visitReason.$inferSelect;
