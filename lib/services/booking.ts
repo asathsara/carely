@@ -1,4 +1,5 @@
 import { and, eq, gte, lte, ne, sql } from "drizzle-orm";
+import { appointmentActions } from "@/lib/audit/actions/appointment";
 import { db } from "@/lib/db";
 import { colomboNow } from "@/lib/clinic-time";
 import { appointment } from "@/lib/db/schema/appointment";
@@ -18,6 +19,7 @@ import {
   type CancelAppointmentParams,
   type OpenDatesResponse,
 } from "@/lib/schemas/booking";
+import { recordAudit } from "@/lib/services/audit";
 
 export class BookingServiceError extends Error {
   constructor(
@@ -193,6 +195,14 @@ export async function bookAppointment(
             feeAmount: targetDoctor.consultationFee,
           })
           .returning();
+
+        await recordAudit(tx, {
+          actorId: actor.userId,
+          action: appointmentActions.booked,
+          targetType: "appointment",
+          targetId: created.id,
+          metadata: {},
+        });
 
         return {
           success: true,
@@ -387,6 +397,13 @@ export async function cancelAppointment(
         .update(appointment)
         .set({ status: "cancelled", updatedAt: new Date() })
         .where(eq(appointment.id, appointmentId));
+      await recordAudit(tx, {
+        actorId: actor.userId,
+        action: appointmentActions.cancelled,
+        targetType: "appointment",
+        targetId: appointmentId,
+        metadata: {},
+      });
       return { success: true };
     },
     { isolationLevel: "read committed" }
