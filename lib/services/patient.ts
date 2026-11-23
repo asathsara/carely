@@ -17,52 +17,60 @@ import { recordAudit } from "@/lib/services/audit";
 import { ServiceError } from "@/lib/services/service-error";
 
 export async function getOrCreatePatientForUser(userId: string): Promise<Patient> {
-  const existing = await db
-    .select()
-    .from(patient)
-    .where(eq(patient.userId, userId))
-    .limit(1);
-
-  if (existing.length > 0) {
-    return existing[0];
-  }
-
-  const userRecord = await db
-    .select({ name: user.name })
-    .from(user)
-    .where(eq(user.id, userId))
-    .limit(1);
-
-  const fullName = userRecord[0]?.name || "Patient";
-
-  const seqResult = await db.execute<{ seq: string }>(
-    sql`SELECT nextval('patient_no_seq')::text as seq`
-  );
-  const rawSeq = seqResult[0]?.seq || "1";
-  const patientNo = `PAT-${String(rawSeq).padStart(6, "0")}`;
-
-  const [created] = await db
-    .insert(patient)
-    .values({
-      userId,
-      patientNo,
-      fullName,
-    })
-    .onConflictDoNothing({ target: patient.userId })
-    .returning();
-
-  if (!created) {
-    // Concurrent request already inserted it; retrieve existing
-    const [concurrent] = await db
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
       .select()
       .from(patient)
       .where(eq(patient.userId, userId))
       .limit(1);
 
-    return concurrent;
-  }
+    if (existing) return existing;
 
-  return created;
+    const [userRecord] = await tx
+      .select({ name: user.name })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1);
+
+    const fullName = userRecord?.name || "Patient";
+
+    const seqResult = await tx.execute<{ seq: string }>(
+      sql`SELECT nextval('patient_no_seq')::text as seq`
+    );
+    const rawSeq = seqResult[0]?.seq || "1";
+    const patientNo = `PAT-${String(rawSeq).padStart(6, "0")}`;
+
+    const [created] = await tx
+      .insert(patient)
+      .values({
+        userId,
+        patientNo,
+        fullName,
+      })
+      .onConflictDoNothing({ target: patient.userId })
+      .returning();
+
+    if (!created) {
+      // Concurrent request already inserted it; retrieve existing.
+      const [concurrent] = await tx
+        .select()
+        .from(patient)
+        .where(eq(patient.userId, userId))
+        .limit(1);
+
+      return concurrent;
+    }
+
+    await recordAudit(tx, {
+      actorId: userId,
+      action: patientActions.registered,
+      targetType: "patient",
+      targetId: created.id,
+      metadata: {},
+    });
+
+    return created;
+  });
 }
 
 type PatientAuditField =
