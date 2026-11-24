@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { LogOut, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
+import { LogoutButton } from "@/components/auth/logout-button";
 import { Avatar } from "@/components/ui/avatar";
 import { SIDEBAR_ICON_SIZE } from "@/lib/constants/ui";
 import { roleNavigation } from "@/lib/config/navigation";
@@ -114,14 +115,9 @@ function MobileNavigation({
               </button>
             </div>
             <NavLinks role={role} onNavigate={() => setOpen(false)} />
-            <Link
-              href="/login"
-              onClick={() => setOpen(false)}
-              className="mt-auto flex items-center gap-3 px-3 py-3 text-sm font-medium"
-            >
-              <LogOut size={SIDEBAR_ICON_SIZE} />
-              Log out
-            </Link>
+            <div className="mt-auto pt-4">
+              <LogoutButton />
+            </div>
           </aside>
         </div>
       ) : null}
