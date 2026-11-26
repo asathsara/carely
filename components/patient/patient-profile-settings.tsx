@@ -1,10 +1,8 @@
 "use client";
 import Image from "next/image";
-import Link from "next/link";
 import { useState } from "react";
 import { Shield, Lock, KeyRound } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { buttonVariants } from "@/components/ui/button";
 import { PatientProfileForm } from "@/components/patient/patient-profile";
 import type { PatientProfile } from "@/lib/schemas/patient-update";
 import { PatientPasswordDialog } from "@/components/patient/patient-password-dialog";
@@ -91,22 +89,6 @@ export function PatientProfileSettings({
               Your patient account is for viewing your own appointments, queue status, and
               doctor-issued prescriptions.
             </p>
-          </Card>
-          <Card className="p-5 sm:p-6">
-            <h2 className="text-sm font-semibold">Session management</h2>
-            <p className="text-muted-foreground mt-2 text-sm">
-              Return to the sign-in screen.
-            </p>
-            <Link
-              className={buttonVariants({
-                variant: "destructive",
-                size: "sm",
-                className: "mt-4",
-              })}
-              href="/login"
-            >
-              Log out of this device
-            </Link>
           </Card>
         </div>
       </div>
